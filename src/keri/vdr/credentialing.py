@@ -34,8 +34,9 @@ class Regery:
         self.temp = temp
         self.cues = cues if cues is not None else decking.Deck()
 
-        self.reger = reger if reger is not None else Reger(name=self.name, base=base, db=self.hby.db, temp=temp)
-        self.tvy = eventing.Tevery(reger=self.reger, db=self.hby.db, local=True)
+        self.reger = reger if reger is not None else Reger(name=self.name, base=base, db=self.hby.db, temp=temp,
+                                                           reopen=True)
+        self.tvy = eventing.Tevery(reger=self.reger, db=self.hby.db, local=True, lax=True)
         self.psr = parsing.Parser(framed=True, kvy=self.hby.kvy, tvy=self.tvy)
 
         self.regs = {}  # List of local registries
@@ -102,7 +103,7 @@ class Regery:
         self.tvy.processEscrows()
 
     def close(self):
-        if self.reger.inited:
+        if self.reger.opened:
             self.reger.close()
 
 
@@ -410,7 +411,7 @@ class Registrar(doing.DoDoer):
             self.counselor.start(aids=aids, pid=hab.phab.pre, prefixer=prefixer, seqner=seqner,
                                  saider=saider)
 
-            print("Waiting for TEL event mulisig anchoring event")
+            print("Waiting for TEL registry vcp event mulisig anchoring event")
             self.rgy.reger.tmse.add(keys=(registry.regk, rseq.qb64, registry.regd), val=(prefixer, seqner, saider))
 
         return registry
@@ -456,7 +457,7 @@ class Registrar(doing.DoDoer):
             self.counselor.start(aids=aids, pid=hab.phab.pre, prefixer=prefixer, seqner=seqner,
                                  saider=saider)
 
-            print(f"Waiting for TEL event mulisig anchoring event {seqner.sn}")
+            print(f"Waiting for TEL iss event mulisig anchoring event {seqner.sn}")
             self.rgy.reger.tmse.add(keys=(vcid, rseq.qb64, iserder.said), val=(prefixer, seqner, saider))
             return vcid, rseq.sn
 
@@ -505,7 +506,7 @@ class Registrar(doing.DoDoer):
             self.counselor.start(aids=aids, pid=hab.phab.pre, prefixer=prefixer, seqner=seqner,
                                  saider=saider)
 
-            print(f"Waiting for TEL event mulisig anchoring event {seqner.sn}")
+            print(f"Waiting for TEL rev event mulisig anchoring event {seqner.sn}")
             self.rgy.reger.tmse.add(keys=(vcid, rseq.qb64, rserder.said), val=(prefixer, seqner, saider))
             return vcid, rseq.sn
 
@@ -817,6 +818,12 @@ class Credentialer(doing.DoDoer):
                     vci = source.said
 
                     issr = source.crd["i"]
+                    for msg in self.hby.db.clonePreIter(pre=issr):
+                        serder = coring.Serder(raw=msg)
+                        atc = msg[serder.size:]
+                        self.postman.send(src=sender, dest=recp, topic="credential", serder=serder,
+                                          attachment=atc)
+
                     for msg in self.verifier.reger.clonePreIter(pre=vci):
                         serder = coring.Serder(raw=msg)
                         atc = msg[serder.size:]
@@ -827,12 +834,6 @@ class Credentialer(doing.DoDoer):
                         serder = coring.Serder(raw=msg)
                         atc = msg[serder.size:]
                         self.postman.send(src=sender, dest=recp, topic="credential", serder=serder, attachment=atc)
-
-                    for msg in self.hby.db.clonePreIter(pre=issr):
-                        serder = coring.Serder(raw=msg)
-                        atc = msg[serder.size:]
-                        self.postman.send(src=sender, dest=recp, topic="credential", serder=serder,
-                                          attachment=atc)
 
                     serder, sadsigs, sadcigs = self.rgy.reger.cloneCred(source.said)
                     atc = signing.provision(serder=source, sadcigars=sadcigs, sadsigers=sadsigs)

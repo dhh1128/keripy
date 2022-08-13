@@ -9,10 +9,8 @@ import os
 import falcon
 from falcon import testing
 from hio.base import doing
-from hio.help import decking
-
 from keri import kering
-from keri.app import habbing, storing, kiwiing, grouping, indirecting, directing, agenting, booting
+from keri.app import habbing, storing, kiwiing, grouping, indirecting, directing, agenting, booting, notifying
 from keri.core import coring, eventing, parsing
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,19 +23,21 @@ class TestDoer(doing.DoDoer):
         self.hby2 = hby2
         self.hab1 = hab1
         self.hab2 = hab2
-        seeder.seedWitEnds(self.hby1.db, protocols=[kering.Schemes.http])
-        seeder.seedWitEnds(self.hby2.db, protocols=[kering.Schemes.http])
 
         wanDoers = indirecting.setupWitness(alias="wan", hby=wanHby, tcpPort=5632, httpPort=5642)
         wanHab = wanHby.habByName("wan")
+        seeder.seedWitEnds(self.hby1.db, witHabs=[wanHab], protocols=[kering.Schemes.http])
+        seeder.seedWitEnds(self.hby2.db, witHabs=[wanHab], protocols=[kering.Schemes.http])
         # Verify the group identifier was incepted properly and matches the identifiers
         assert wanHab.pre == "B6KBd3GmnWvjcmE775zNRPCsJfOhasjBbyLjUpYOWvyw"
         assert hab1.pre == "EJTo9FQNKETP4Ux5bwE43go-uN04TMnI3auceEv9Ms2A"
         assert hab2.pre == "EgWTotjwstu_4r-LYrZ59j8qhHwX-P0_9En880ADP_i8"
 
-        self.notifs = decking.Deck()
-        self.app1, doers1 = loadApp(hby1, self.notifs)
-        self.app2, doers2 = loadApp(hby2, self.notifs)
+        self.notifier1 = notifying.Notifier(hby=hby1)
+        self.notifier2 = notifying.Notifier(hby=hby2)
+
+        self.app1, doers1 = loadApp(hby1, self.notifier1)
+        self.app2, doers2 = loadApp(hby2, self.notifier2)
 
         doers = wanDoers + doers1 + doers2
 
@@ -87,8 +87,8 @@ class TestDoer(doing.DoDoer):
         icpd = dict(aids=[self.hab1.pre, self.hab2.pre],
                     transferable=True,
                     toad=0,
-                    isith=2,
-                    nsith=2
+                    isith='2',
+                    nsith='2'
                     )
 
         b = json.dumps(icpd).encode("utf-8")
@@ -112,23 +112,20 @@ class TestDoer(doing.DoDoer):
 
         assert ghab2.pre == "EtWwBSsPnLKLv53RNR9xHpaXL0mO7X1LMiDG9shzY6f4"
 
-        while len(self.notifs) != 2:
+        while len(self.notifier1.getNotes()) != 1 or len(self.notifier2.getNotes()) != 1:
             yield self.tock
 
-        msg = self.notifs.popleft()
-        assert msg["kin"] == "notification"
-        assert msg["topic"] == "/multisig"
-        assert msg["msg"]["r"] == "/icp/complete"
-
-        msg = self.notifs.popleft()
-        assert msg["kin"] == "notification"
-        assert msg["topic"] == "/multisig"
-        assert msg["msg"]["r"] == "/icp/complete"
+        note = self.notifier1.getNotes()[0]
+        assert note.pad['a']['r'] == "/multisig/icp/complete"
+        assert note.pad['a']['a'] == {'i': 'EtWwBSsPnLKLv53RNR9xHpaXL0mO7X1LMiDG9shzY6f4', 's': 0}
+        note = self.notifier2.getNotes()[0]
+        assert note.pad['a']['r'] == "/multisig/icp/complete"
+        assert note.pad['a']['a'] == {'i': 'EtWwBSsPnLKLv53RNR9xHpaXL0mO7X1LMiDG9shzY6f4', 's': 0}
 
         rotd = dict(aids=[self.hab1.pre, self.hab2.pre],
                     toad=0,
-                    isith=2,
-                    nsith=2
+                    isith='2',
+                    nsith='2'
                     )
 
         b = json.dumps(rotd).encode("utf-8")
@@ -151,18 +148,17 @@ class TestDoer(doing.DoDoer):
         assert ghab2.kever.serder.ked["t"] == coring.Ilks.rot
         assert ghab2.kever.serder.said == "E0Knx0wNcw9gwkU9HPEK9KtMzSzlJcbT4SVMZ47YUOhU"
 
-        while len(self.notifs) != 2:
+        while len(self.notifier1.getNotes()) != 2 or len(self.notifier2.getNotes()) != 2:
             yield self.tock
 
-        msg = self.notifs.popleft()
-        assert msg["kin"] == "notification"
-        assert msg["topic"] == "/multisig"
-        assert msg["msg"]["r"] == "/rot/complete"
-
-        msg = self.notifs.popleft()
-        assert msg["kin"] == "notification"
-        assert msg["topic"] == "/multisig"
-        assert msg["msg"]["r"] == "/rot/complete"
+        notes = self.notifier1.getNotes()
+        note = notes[1]
+        assert note.pad['a']['r'] == "/multisig/rot/complete"
+        assert note.pad['a']['a'] == {'i': 'EtWwBSsPnLKLv53RNR9xHpaXL0mO7X1LMiDG9shzY6f4', 's': 0}
+        notes = self.notifier2.getNotes()
+        note = notes[1]
+        assert note.pad['a']['r'] == "/multisig/rot/complete"
+        assert note.pad['a']['a'] == {'i': 'EtWwBSsPnLKLv53RNR9xHpaXL0mO7X1LMiDG9shzY6f4', 's': 0}
 
         self.remove(self.toRemove)
         return True
@@ -179,12 +175,12 @@ def test_multisig_identifier_ends(seeder):
         testDoer = TestDoer(wanHby, hby1, hab1, hby2, hab2, seeder)
 
         # Run all participants
-        directing.runController(doers=[testDoer], expire=60.0)
+        directing.runController(doers=[testDoer], expire=30.0)
 
         assert testDoer.done is True
 
 
-def loadApp(hby, notifs):
+def loadApp(hby, notifier):
     app = falcon.App()
 
     repd = storing.Respondant(hby=hby)
@@ -194,13 +190,14 @@ def loadApp(hby, notifs):
     doers = kiwiing.loadEnds(hby=hby,
                              rep=repd,
                              rgy=None,
-                             notifications=notifs,
                              verifier=None,
+                             notifier=notifier,
+                             signaler=notifier.signaler,
                              app=app, path="/",
                              registrar=None,
                              credentialer=None,
                              servery=booting.Servery(port=1234),
                              bootConfig=dict(),
-                             mbx=mbx, counselor=counselor)
+                             counselor=counselor)
     doers.extend([repd, counselor, mbx])
     return app, doers

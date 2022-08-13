@@ -7,13 +7,28 @@ https://docs.pytest.org/en/latest/pythonpath.html
 """
 import os
 import shutil
+import multicommand
 
 import pytest
+from hio.base import doing
 
 from keri import kering
-from keri.core import scheming, coring
+from keri.core import scheming, coring, routing, eventing, parsing
 from keri.db import basing
 from keri.help import helping
+from keri import help
+
+from keri.app.cli import commands
+
+
+WitnessUrls = {
+    "wan:tcp": "tcp://127.0.0.1:5632/",
+    "wan:http": "http://127.0.0.1:5642/",
+    "wes:tcp": "tcp://127.0.0.1:5634/",
+    "wes:http": "http://127.0.0.1:5644/",
+    "wil:tcp": "tcp://127.0.0.1:5633/",
+    "wil:http": "http://127.0.0.1:5643/",
+}
 
 
 @pytest.fixture()
@@ -49,71 +64,38 @@ def seeder():
 
 class DbSeed:
     @staticmethod
-    def seedWitEnds(db, protocols=None, temp=True):
+    def seedWitEnds(db, witHabs, protocols=None):
         """ Add endpoint and location records for well known test witnesses
 
         Args:
             db (Baser): database to add records
+            witHabs (list): list of witness Habs for whom to create Ends
             protocols (list) array of str protocol names to load URLs for.
         Returns:
 
         """
+
+        rtr = routing.Router()
+        rvy = routing.Revery(db=db, rtr=rtr)
+        kvy = eventing.Kevery(db=db, lax=False, local=True, rvy=rvy)
+        kvy.registerReplyRoutes(router=rtr)
+        psr = parsing.Parser(framed=True, kvy=kvy, rvy=rvy)
+
         if protocols is None:
             protocols = [kering.Schemes.tcp, kering.Schemes.http]
 
-        wits = dict()
-        if temp:
-            wits['wan'] = 'B6KBd3GmnWvjcmE775zNRPCsJfOhasjBbyLjUpYOWvyw'
-            wits['wes'] = 'B3y3efWXFxXRJYYkggXjp-lJSoDsyqt7kok03edvHeas'
-            wits['wil'] = 'B7L80wOpOxsItVk1p4tYiK6vNjVVLExvhB5yGEuk864U'
-        else:
-            wits['wan'] = 'BGKVzj4ve0VSd8z_AmvhLg4lqcC_9WYX90k03q-R_Ydo'
-            wits['wes'] = 'Bgoq68HCmYNUDgOz4Skvlu306o_NY-NrYuKAVhk3Zh9c'
-            wits['wil'] = 'BuyRFMideczFZoapylLIyCjSdhtqVb31wZkRKvPfNqkw'
+        for scheme in protocols:
+            msgs = bytearray()
+            for hab in witHabs:
+                url = WitnessUrls[f"{hab.name}:{scheme}"]
+                msgs.extend(hab.makeEndRole(eid=hab.pre,
+                                            role=kering.Roles.controller,
+                                            stamp=help.nowIso8601()))
 
-        wanEndKeys = (wits['wan'], "controller",
-                      wits['wan'])
-        ender = basing.EndpointRecord(allowed=True)  # create new record
-        db.ends.pin(keys=wanEndKeys, val=ender)  # overwrite
-
-        if kering.Schemes.tcp in protocols:
-            locer = basing.LocationRecord(url="tcp://127.0.0.1:5632/")  # create new record
-            wanLocKeys = (wits['wan'], kering.Schemes.tcp)
-            db.locs.pin(keys=wanLocKeys, val=locer)  # overwrite
-
-        if kering.Schemes.http in protocols:
-            httplocer = basing.LocationRecord(url="http://127.0.0.1:5642/")  # create new record
-            wanHttpLocKeys = (wits['wan'], kering.Schemes.http)
-            db.locs.pin(keys=wanHttpLocKeys, val=httplocer)  # overwrite
-
-        wesEndKeys = (wits['wes'], "controller",
-                      wits['wes'])
-        ender = basing.EndpointRecord(allowed=True)  # create new record
-        db.ends.pin(keys=wesEndKeys, val=ender)  # overwrite
-
-        if kering.Schemes.tcp in protocols:
-            locer = basing.LocationRecord(url="tcp://127.0.0.1:5634/")  # create new record
-            wesLocKeys = (wits['wes'], kering.Schemes.tcp)
-            db.locs.pin(keys=wesLocKeys, val=locer)  # overwrite
-
-        if kering.Schemes.http in protocols:
-            httplocer = basing.LocationRecord(url="http://127.0.0.1:5644/")  # create new record
-            wesHttpLocKeys = (wits['wes'], kering.Schemes.http)
-            db.locs.pin(keys=wesHttpLocKeys, val=httplocer)  # overwrite
-
-        wilEndKeys = ('B7L80wOpOxsItVk1p4tYiK6vNjVVLExvhB5yGEuk864U', "controller",
-                      'B7L80wOpOxsItVk1p4tYiK6vNjVVLExvhB5yGEuk864U')
-        ender = basing.EndpointRecord(allowed=True)  # create new record
-        db.ends.pin(keys=wilEndKeys, val=ender)  # overwrite
-        if kering.Schemes.tcp in protocols:
-            locer = basing.LocationRecord(url="tcp://127.0.0.1:5633/")  # create new record
-            wilLocKeys = ('B7L80wOpOxsItVk1p4tYiK6vNjVVLExvhB5yGEuk864U', kering.Schemes.tcp)
-            db.locs.pin(keys=wilLocKeys, val=locer)  # overwrite
-
-        if kering.Schemes.http in protocols:
-            httplocer = basing.LocationRecord(url="http://127.0.0.1:5643/")  # create new record
-            wilHttpLocKeys = ('B7L80wOpOxsItVk1p4tYiK6vNjVVLExvhB5yGEuk864U', kering.Schemes.http)
-            db.locs.pin(keys=wilHttpLocKeys, val=httplocer)  # overwrite
+                msgs.extend(hab.makeLocScheme(url=url,
+                                              scheme=scheme,
+                                              stamp=help.nowIso8601()))
+                psr.parse(ims=msgs)
 
     @staticmethod
     def seedWatcherEnds(db, protocols=None):
@@ -224,8 +206,59 @@ class Helpers:
             shutil.rmtree(f'/usr/local/var/keri/reg/{name}')
         if os.path.exists(f'/usr/local/var/keri/cf/{name}.json'):
             os.remove(f'/usr/local/var/keri/cf/{name}.json')
+        if os.path.exists(f'/usr/local/var/keri/cf/{name}'):
+            shutil.rmtree(f'/usr/local/var/keri/cf/{name}')
+        if os.path.exists(f'~/.keri/db/{name}'):
+            shutil.rmtree(f'~/.keri/db/{name}')
+        if os.path.exists(f'~/.keri/ks/{name}'):
+            shutil.rmtree(f'~/.keri/ks/{name}')
+        if os.path.exists(f'~/.keri/reg/{name}'):
+            shutil.rmtree(f'~/.keri/reg/{name}')
+        if os.path.exists(f'~/.keri/cf/{name}.json'):
+            os.remove(f'~/.keri/cf/{name}.json')
+        if os.path.exists(f'~/.keri/cf/{name}'):
+            shutil.rmtree(f'~/.keri/cf/{name}')
 
 
 @pytest.fixture
 def helpers():
     return Helpers
+
+
+class CommandDoer(doing.DoDoer):
+    """
+    DoDoer for running a single command-line command by initializing
+    the doers for that command and executing them until they complete.
+
+    """
+
+    def __init__(self, command, **kwa):
+        self.command = command
+        super(CommandDoer, self).__init__(doers=[doing.doify(self.cmdDo)], **kwa)
+
+    def cmdDo(self, tymth, tock=0.0):
+        """  Execute single command from .command by parsing and executing the resulting doers """
+
+        # enter context
+        self.wind(tymth)
+        self.tock = tock
+        _ = (yield self.tock)
+
+        parser = multicommand.create_parser(commands)
+        args = parser.parse_args(self.command)
+        assert args.handler is not None
+        doers = args.handler(args)
+
+        self.extend(doers)
+
+        while True:
+            done = True
+            for doer in doers:
+                if not doer.done:
+                    done = False
+
+            if done:
+                break
+            yield self.tock
+
+        return True

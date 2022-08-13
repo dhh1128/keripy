@@ -11,7 +11,7 @@ from falcon import testing
 from hio.base import doing
 
 from keri import kering
-from keri.app import habbing, storing, kiwiing, grouping, booting
+from keri.app import habbing, storing, kiwiing, grouping, booting, notifying
 from keri.app.kiwiing import MultisigEventEnd
 from keri.core import eventing, parsing, coring, scheming
 from keri.core.eventing import SealEvent
@@ -45,8 +45,7 @@ def test_credential_handlers(mockHelpingNowUTC, seeder):
         kvy = eventing.Kevery(db=hab.db, lax=True)
         parsing.Parser().parseOne(ims=bytearray(icp), kvy=kvy)
 
-        mbx = storing.Mailboxer(name="test", temp=True)
-        notifier = storing.Notifier(controller="", mbx=mbx)
+        notifier = notifying.Notifier(hby=hby)
         repd = storing.Respondant(hby=hby)
         counselor = grouping.Counselor(hby=hby)
         registrar = credentialing.Registrar(hby=hby, rgy=regery, counselor=counselor)
@@ -55,14 +54,15 @@ def test_credential_handlers(mockHelpingNowUTC, seeder):
         _ = kiwiing.loadEnds(hby=hby,
                              rep=repd,
                              rgy=regery,
-                             notifications=notifier.notifs,
                              verifier=verifier,
+                             notifier=notifier,
+                             signaler=notifier.signaler,
                              counselor=counselor,
                              registrar=registrar,
                              credentialer=credentialer,
                              servery=booting.Servery(port=1234),
                              bootConfig=dict(),
-                             app=app, path="/", mbx=None)
+                             app=app, path="/")
 
         client = testing.TestClient(app)
 
@@ -164,7 +164,8 @@ def test_multisig_incept():
         assert hab3.pre == "EPrbmW_c_3Dp4Q6rddi5X7RHp_Xkjp21RcMG2FEWr_HI"
 
         counselor = grouping.Counselor(hby=hby1)
-        icpEnd = kiwiing.MultisigInceptEnd(hby=hby1, counselor=counselor)
+        notifier = notifying.Notifier(hby=hby1)
+        icpEnd = kiwiing.MultisigInceptEnd(hby=hby1, counselor=counselor, notifier=notifier)
         app = falcon.App()
         app.add_route("/multisig/{alias}/icp", icpEnd)
 
@@ -201,8 +202,8 @@ def test_multisig_incept():
                 "Bgoq68HCmYNUDgOz4Skvlu306o_NY-NrYuKAVhk3Zh9c"
             ],
             toad=2,
-            isith=2,
-            nsith=2
+            isith='2',
+            nsith='2'
 
         )
         b = json.dumps(body).encode("utf-8")
@@ -240,7 +241,8 @@ def test_multisig_incept():
 
         # Create new end and app to represent Hab2's agent
         counselor = grouping.Counselor(hby=hby2)
-        icpEnd = kiwiing.MultisigInceptEnd(hby=hby2, counselor=counselor)
+        notifier = notifying.Notifier(hby=hby2)
+        icpEnd = kiwiing.MultisigInceptEnd(hby=hby2, counselor=counselor, notifier=notifier)
         app = falcon.App()
         app.add_route("/multisig/{alias}/icp", icpEnd)
 
@@ -301,7 +303,8 @@ def test_multisig_rotation():
 
         # Start with hby1 who will initiate the rotation with a POST
         counselor = grouping.Counselor(hby=hby1)
-        rotEnd = MultisigEventEnd(hby=hby1, counselor=counselor)
+        notifier = notifying.Notifier(hby=hby1)
+        rotEnd = MultisigEventEnd(hby=hby1, counselor=counselor, notifier=notifier)
         app.add_route("/multisig/{alias}/rot", rotEnd, suffix="rot")
 
         client = testing.TestClient(app)
@@ -328,8 +331,8 @@ def test_multisig_rotation():
                 "Bgoq68HCmYNUDgOz4Skvlu306o_NY-NrYuKAVhk3Zh9c"
             ],
             toad=2,
-            isith=2,
-            nsith=2
+            isith='2',
+            nsith='2'
 
         )
         b = json.dumps(body).encode("utf-8")
@@ -361,14 +364,15 @@ def test_multisig_rotation():
                                    'E83mbE6upuYnFlx68GmLYCQd7cCcwG_AtHM6dW_GT068',
                                    'ELftDsGmYwRsd2lXjUqbky0vxABS4-VXeHV7OAIQzCQI']
         assert payload['cuts'] == []
-        assert payload['sith'] == 2
+        assert payload['sith'] == '2'
         assert payload['toad'] == 2
         assert payload['data'] is None
 
         app = falcon.App()
         # Now join rotation with hby2 who will initiate the rotation with a POST
         counselor = grouping.Counselor(hby=hby2)
-        rotEnd = MultisigEventEnd(hby=hby2, counselor=counselor)
+        notifier = notifying.Notifier(hby=hby2)
+        rotEnd = MultisigEventEnd(hby=hby2, counselor=counselor, notifier=notifier)
         app.add_route("/multisig/{alias}/rot", rotEnd, suffix="rot")
         client = testing.TestClient(app)
         result = client.simulate_put(path=f"/multisig/{prefix}_group2/rot", body=b)
@@ -390,7 +394,8 @@ def test_multisig_interaction():
 
         # Start with hby1 who will initiate the rotation with a POST
         counselor = grouping.Counselor(hby=hby1)
-        evtEnd = MultisigEventEnd(hby=hby1, counselor=counselor)
+        notifier = notifying.Notifier(hby=hby1)
+        evtEnd = MultisigEventEnd(hby=hby1, counselor=counselor, notifier=notifier)
         app.add_route("/multisig/{alias}/ixn", evtEnd, suffix="ixn")
 
         client = testing.TestClient(app)
@@ -442,7 +447,8 @@ def test_multisig_interaction():
         app = falcon.App()
         # Now join rotation with hby2 who will initiate the rotation with a POST
         counselor = grouping.Counselor(hby=hby1)
-        evtEnd = MultisigEventEnd(hby=hby2, counselor=counselor)
+        notifier = notifying.Notifier(hby=hby1)
+        evtEnd = MultisigEventEnd(hby=hby2, counselor=counselor, notifier=notifier)
         app.add_route("/multisig/{alias}/ixn", evtEnd, suffix="ixn")
         client = testing.TestClient(app)
         result = client.simulate_put(path=f"/multisig/{prefix}_group2/ixn", body=b)
@@ -463,6 +469,7 @@ def test_identifier_ends():
         regery = credentialing.Regery(hby=hby, name=hab.name, temp=True)
         verifier = verifying.Verifier(hby=hby, reger=regery.reger)
 
+        notifier = notifying.Notifier(hby=hby)
         repd = storing.Respondant(hby=hby)
         counselor = grouping.Counselor(hby=hby)
         registrar = credentialing.Registrar(hby=hby, rgy=regery, counselor=counselor)
@@ -472,12 +479,14 @@ def test_identifier_ends():
                                  rep=repd,
                                  rgy=regery,
                                  verifier=verifier,
+                                 notifier=notifier,
+                                 signaler=notifier.signaler,
                                  app=app, path="/",
                                  registrar=registrar,
                                  credentialer=credentialer,
                                  servery=booting.Servery(port=1234),
                                  bootConfig=dict(),
-                                 mbx=None, counselor=counselor)
+                                 counselor=counselor)
         limit = 1.0
         tock = 0.03125
         doist = doing.Doist(tock=tock, limit=limit, doers=doers)
@@ -499,7 +508,7 @@ def test_identifier_ends():
                                 'toad': 0,
                                 'witnesses': []}]
 
-        req = dict(isith=1, count=1)
+        req = dict(isith='1', count=1)
         result = client.simulate_put(path="/ids/test/rot", body=json.dumps(req).encode("utf-8"))
         assert result.status == falcon.HTTP_200
 
@@ -532,7 +541,7 @@ def test_identifier_ends():
                                 'toad': 0,
                                 'witnesses': []}]
 
-        req = dict(transferable=True, wits=[], toad=0, isith=1, count=1, nsith=1, ncount=1, estOnly=False)
+        req = dict(transferable=True, wits=[], toad=0, isith='1', count=1, nsith='1', ncount=1, estOnly=False)
         result = client.simulate_post(path="/ids/test2", body=json.dumps(req).encode("utf-8"))
         assert result.status == falcon.HTTP_200
         assert result.json == {'a': [],
@@ -550,12 +559,12 @@ def test_identifier_ends():
                                'v': 'KERI10JSON00012b_'}
 
         # Try to reuse the alias
-        req = dict(transferable=True, wits=[], toad=0, isith=1, count=1, nsith=1, ncount=1, estOnly=False)
+        req = dict(transferable=True, wits=[], toad=0, isith='1', count=1, nsith='1', ncount=1, estOnly=False)
         result = client.simulate_post(path="/ids/test2", body=json.dumps(req).encode("utf-8"))
         assert result.status == falcon.HTTP_400
 
         # Create a delegated identifier
-        req = dict(transferable=True, wits=[], toad=0, isith=1, count=1, nsith=1, ncount=1, estOnly=False,
+        req = dict(transferable=True, wits=[], toad=0, isith='1', count=1, nsith='1', ncount=1, estOnly=False,
                    delpre="ECtWlHS2Wbx5M2Rg6nm69PCtzwb1veiRNvDpBGF9Z1Pc")
         result = client.simulate_post(path="/ids/test3", body=json.dumps(req).encode("utf-8"))
         assert result.status == falcon.HTTP_200
@@ -654,19 +663,21 @@ def test_oobi_ends(seeder):
 
         assert palHab.pre == "E6Dqo6tHmYTuQ3Lope4mZF_4hBoGJl93cBHRekr_iD_A"
 
+        notifier = notifying.Notifier(hby=palHby)
         oobiery = ending.Oobiery(hby=palHby)
         app = falcon.App()
         _ = kiwiing.loadEnds(hby=palHby,
                              rep=None,
                              rgy=None,
                              verifier=None,
+                             notifier=notifier,
+                             signaler=notifier.signaler,
                              app=app, path="/",
-                             mbx=None, counselor=None,
+                             counselor=None,
                              registrar=None,
                              credentialer=None,
                              servery=booting.Servery(port=1234),
-                             bootConfig=dict(),
-                             oobiery=oobiery)
+                             bootConfig=dict())
         client = testing.TestClient(app)
 
         result = client.simulate_get(path="/oobi/test?role=witness")
@@ -692,7 +703,7 @@ def test_oobi_ends(seeder):
             'role': 'controller'}
 
         # Seed with witness endpoints
-        seeder.seedWitEnds(palHby.db, protocols=[kering.Schemes.http, kering.Schemes.tcp])
+        seeder.seedWitEnds(palHby.db, witHabs=[wesHab], protocols=[kering.Schemes.http, kering.Schemes.tcp])
 
         result = client.simulate_get(path="/oobi/pal?role=witness")
         assert result.status == falcon.HTTP_200
@@ -711,48 +722,46 @@ def test_oobi_ends(seeder):
         data = dict(rpy={})
         b = json.dumps(data).encode("utf-8")
         result = client.simulate_post(path="/oobi", body=b)
-        assert result.status == falcon.HTTP_202
+        assert result.status == falcon.HTTP_501
 
         data = dict(url="http://127.0.0.1:5644/oobi/E6Dqo6tHmYTuQ3Lope4mZF_4hBoGJl93cBHRekr_iD_A/witness/")
         b = json.dumps(data).encode("utf-8")
         result = client.simulate_post(path="/oobi", body=b)
         assert result.status == falcon.HTTP_202
-        assert len(oobiery.oobis) == 1
-        oobi = oobiery.oobis.popleft()
-        assert oobi == {'url': 'http://127.0.0.1:5644/oobi/E6Dqo6tHmYTuQ3Lope4mZF_4hBoGJl93cBHRekr_iD_A/witness/'}
-
-        # Post without a URL or RPY
-        data = dict(oobialias="sal")
-        b = json.dumps(data).encode("utf-8")
-        result = client.simulate_post(path="/oobi/pal", body=b)
-        assert result.status == falcon.HTTP_400
+        assert oobiery.hby.db.oobis.cntAll() == 1
+        (url,),  item = next(oobiery.hby.db.oobis.getItemIter())
+        assert item is not None
+        assert url == 'http://127.0.0.1:5644/oobi/E6Dqo6tHmYTuQ3Lope4mZF_4hBoGJl93cBHRekr_iD_A/witness/'
+        oobiery.hby.db.oobis.rem(keys=(url,))
 
         # Post an RPY
         data = dict(oobialias="sal", rpy={})
         b = json.dumps(data).encode("utf-8")
-        result = client.simulate_post(path="/oobi/pal", body=b)
-        assert result.status == falcon.HTTP_202
+        result = client.simulate_post(path="/oobi", body=b)
+        assert result.status == falcon.HTTP_501
 
         # POST without an oobialias
         data = dict(url="http://127.0.0.1:5644/oobi/E6Dqo6tHmYTuQ3Lope4mZF_4hBoGJl93cBHRekr_iD_A/witness/")
         b = json.dumps(data).encode("utf-8")
-        result = client.simulate_post(path="/oobi/pal", body=b)
-        assert result.status == falcon.HTTP_400
-
-        # Post to an unknown local alias
-        data = dict(oobialias="sal",
-                    url="http://127.0.0.1:5644/oobi/E6Dqo6tHmYTuQ3Lope4mZF_4hBoGJl93cBHRekr_iD_A/witness/")
-        b = json.dumps(data).encode("utf-8")
-        result = client.simulate_post(path="/oobi/jim", body=b)
-        assert result.status == falcon.HTTP_404
-
-        result = client.simulate_post(path="/oobi/pal", body=b)
+        result = client.simulate_post(path="/oobi", body=b)
         assert result.status == falcon.HTTP_202
-        assert len(oobiery.oobis) == 1
-        oobi = oobiery.oobis.popleft()
-        assert oobi == {'alias': 'pal',
-                        'oobialias': 'sal',
-                        'url': 'http://127.0.0.1:5644/oobi/E6Dqo6tHmYTuQ3Lope4mZF_4hBoGJl93cBHRekr_iD_A/witness/'}
+        assert oobiery.hby.db.oobis.cntAll() == 1
+        (url,),  item = next(oobiery.hby.db.oobis.getItemIter())
+        assert item is not None
+        assert url == 'http://127.0.0.1:5644/oobi/E6Dqo6tHmYTuQ3Lope4mZF_4hBoGJl93cBHRekr_iD_A/witness/'
+        assert item.oobialias is None
+        oobiery.hby.db.oobis.rem(keys=(url,))
+
+        data = dict(oobialias="sal", url="http://127.0.0.1:5644/oobi/E6Dqo6tHmYTuQ3Lope4mZF_4hBoGJl93cBHRekr_iD_A"
+                                         "/witness/")
+        b = json.dumps(data).encode("utf-8")
+        result = client.simulate_post(path="/oobi", body=b)
+        assert result.status == falcon.HTTP_202
+        assert oobiery.hby.db.oobis.cntAll() == 1
+        (url,),  item = next(oobiery.hby.db.oobis.getItemIter())
+        assert item is not None
+        assert url == 'http://127.0.0.1:5644/oobi/E6Dqo6tHmYTuQ3Lope4mZF_4hBoGJl93cBHRekr_iD_A/witness/'
+        assert item.oobialias == 'sal'
 
 
 def test_challenge_ends(seeder):
@@ -762,17 +771,20 @@ def test_challenge_ends(seeder):
         assert palHab.pre == "Eg-r6DSx1C4aReh2pwQsejJS-uPc6qb8OQ0qm30bKxcU"
 
         app = falcon.App()
+        notifier = notifying.Notifier(hby=palHby)
         repd = storing.Respondant(hby=palHby)
         _ = kiwiing.loadEnds(hby=palHby,
                              rep=repd,
                              rgy=None,
                              verifier=None,
+                             notifier=notifier,
+                             signaler=notifier.signaler,
                              app=app, path="/",
                              registrar=None,
                              credentialer=None,
                              servery=booting.Servery(port=1234),
                              bootConfig=dict(),
-                             mbx=None, counselor=None)
+                             counselor=None)
         client = testing.TestClient(app)
 
         result = client.simulate_get(path="/challenge?strength=256")
@@ -834,17 +846,20 @@ def test_contact_ends(seeder):
         for aid in aids:
             assert aid in palHab.kevers
 
+        notifier = notifying.Notifier(hby=palHby)
         app = falcon.App()
         _ = kiwiing.loadEnds(hby=palHby,
                              rep=None,
                              rgy=None,
                              verifier=None,
+                             notifier=notifier,
+                             signaler=notifier.signaler,
                              app=app, path="/",
                              registrar=None,
                              credentialer=None,
                              servery=booting.Servery(port=1234),
                              bootConfig=dict(),
-                             mbx=None, counselor=None)
+                             counselor=None)
         client = testing.TestClient(app)
 
         response = client.simulate_get("/contacts")
@@ -860,7 +875,7 @@ def test_contact_ends(seeder):
         assert response.status == falcon.HTTP_404
 
         # POST to a local identifier
-        response = client.simulate_post(f"/contacts/{palHab.pre}/{palHab.name}", body=b)
+        response = client.simulate_post(f"/contacts/{palHab.pre}", body=b)
         assert response.status == falcon.HTTP_400
 
         for i in range(5):
@@ -872,7 +887,7 @@ def test_contact_ends(seeder):
             )
             b = json.dumps(data).encode("utf-8")
             # POST to an identifier that is not in the Kever
-            response = client.simulate_post(f"/contacts/{aids[i]}/{palHab.name}", body=b)
+            response = client.simulate_post(f"/contacts/{aids[i]}", body=b)
             assert response.status == falcon.HTTP_200
 
         response = client.simulate_get(f"/contacts/E8AKUcbZyik8EdkOwXgnyAxO5mSIPJWGZ_o7zMhnNnjo")
@@ -898,19 +913,19 @@ def test_contact_ends(seeder):
         data = dict(id=hab.pre, company="ProSapien")
         b = json.dumps(data).encode("utf-8")
 
-        response = client.simulate_put(f"/contacts/E8AKUcbZyik8EdkOwXgnyAxO5mSIPJWGZ_o7zMhnNnjo/{palHab.name}", body=b)
+        response = client.simulate_put(f"/contacts/E8AKUcbZyik8EdkOwXgnyAxO5mSIPJWGZ_o7zMhnNnjo", body=b)
         assert response.status == falcon.HTTP_404
 
-        response = client.simulate_put(f"/contacts/{palHab.pre}/{palHab.name}", body=b)
+        response = client.simulate_put(f"/contacts/{palHab.pre}", body=b)
         assert response.status == falcon.HTTP_400
 
-        response = client.simulate_put(f"/contacts/{aids[2]}/{palHab.name}", body=b)
+        response = client.simulate_put(f"/contacts/{aids[2]}", body=b)
         assert response.status == falcon.HTTP_200
         assert response.json == {'company': 'ProSapien',
                                  'first': 'Ken2',
                                  'id': 'EF2EBiBL7RJ84ilErw8PyMEbABX_wJIL2VHNqLOdq5cw',
                                  'last': 'Burns2'}
-        response = client.simulate_put(f"/contacts/{aids[4]}/{palHab.name}", body=b)
+        response = client.simulate_put(f"/contacts/{aids[4]}", body=b)
         assert response.status == falcon.HTTP_200
         assert response.json == {'company': 'ProSapien',
                                  'first': 'Ken4',
@@ -999,18 +1014,21 @@ def test_keystate_end():
 
         app = falcon.App()
 
+        notifier = notifying.Notifier(hby=hby)
         counselor = grouping.Counselor(hby=hby)
 
         _ = kiwiing.loadEnds(hby=hby,
                              rep=None,
                              rgy=None,
                              verifier=None,
+                             notifier=notifier,
+                             signaler=notifier.signaler,
                              registrar=None,
                              credentialer=None,
                              servery=booting.Servery(port=1234),
                              bootConfig=dict(),
                              app=app, path="/",
-                             mbx=None, counselor=counselor, )
+                             counselor=counselor)
         client = testing.TestClient(app)
 
         result = client.simulate_get(path=f"/keystate/E8AKUcbZyik8EdkOwXgnyAxO5mSIPJWGZ_o7zMhnNnjo")
@@ -1031,16 +1049,19 @@ def test_keystate_end():
 def test_schema_ends():
     with habbing.openHby(name="test", salt=coring.Salter(raw=b'0123456789abcdef').qb64) as hby:
         app = falcon.App()
+        notifier = notifying.Notifier(hby=hby)
         _ = kiwiing.loadEnds(hby=hby,
                              rep=None,
                              rgy=None,
                              verifier=None,
+                             notifier=notifier,
+                             signaler=notifier.signaler,
                              app=app, path="/",
                              registrar=None,
                              credentialer=None,
                              servery=booting.Servery(port=1234),
                              bootConfig=dict(),
-                             mbx=None, counselor=None, )
+                             counselor=None)
         client = testing.TestClient(app)
 
         sed = dict()
@@ -1088,17 +1109,20 @@ def test_escrow_end(mockHelpingNowUTC):
     with habbing.openHby(name="bob", temp=True) as hby:
         rgy = credentialing.Regery(hby=hby, name="bob", temp=True)
 
+        notifier = notifying.Notifier(hby=hby)
         app = falcon.App()
         _ = kiwiing.loadEnds(hby=hby,
                              rep=None,
                              rgy=rgy,
                              verifier=None,
+                             notifier=notifier,
+                             signaler=notifier.signaler,
                              app=app, path="/",
                              registrar=None,
                              credentialer=None,
                              servery=booting.Servery(port=1234),
                              bootConfig=dict(),
-                             mbx=None, counselor=None)
+                             counselor=None)
         client = testing.TestClient(app)
 
         response = client.simulate_get("/escrows")
@@ -1151,6 +1175,7 @@ def test_escrow_end(mockHelpingNowUTC):
                                        'signature':
                                            'AAotHSmS5LuCg2LXwlandbAs3MFR0yTC5BbE2iSW_35U2qA0hP9gp66G--mHhiFmfHEIbBKrs3'
                                            'tjcc8ySvYcpiBg'}],
+                       'stored': True,
                        'timestamp': '2021-01-01T00:00:00.000000+00:00',
                        'witness_signatures': []}
         response = client.simulate_get("/escrows?pre=ECgrcJTdVr1TNnmmDrT8Pol9w_0BhsTxlQkWtjyrT060")

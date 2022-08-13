@@ -5,7 +5,6 @@ keri.app.agenting module
 
 """
 import json
-from urllib.parse import urlparse
 
 import falcon
 import mnemonic
@@ -14,19 +13,17 @@ from hio.base import doing
 from hio.core import http
 from hio.help import decking
 
-from . import grouping, challenging, connecting
+from . import grouping, challenging, connecting, notifying, signaling, oobiing
 from .. import help
 from .. import kering
 from ..app import specing, forwarding, agenting, storing, indirecting, httping, habbing, delegating, booting
-from ..core import coring, eventing, cueing
+from ..core import coring, eventing
 from ..db import dbing
 from ..db.dbing import dgKey
 from ..end import ending
-from ..help import helping
 from ..peer import exchanging
 from ..vc import proving, protocoling, walleting
 from ..vdr import verifying, credentialing
-from ..app.cli.common import oobiing
 
 logger = help.ogler.getLogger()
 
@@ -42,7 +39,7 @@ class LockEnd(doing.DoDoer):
 
         super(LockEnd, self).__init__(doers=[])
 
-    def on_get(self, _, rep):
+    def on_post(self, _, rep):
         """ Lock POST endpoint
 
         Parameters:
@@ -60,15 +57,14 @@ class LockEnd(doing.DoDoer):
 
 
         """
-        doers = booting.setup(servery=self.servery, controller=self.bootConfig["controller"],
-                              configFile=self.bootConfig["configFile"],
-                              configDir=self.bootConfig["configDir"],
-                              insecure=self.bootConfig["insecure"],
-                              tcp=self.bootConfig["tcp"],
-                              adminHttpPort=self.bootConfig["adminHttpPort"],
-                              path=self.bootConfig["staticPath"],
-                              headDirPath=self.bootConfig["headDirPath"])
-        self.extend(doers)
+        booting.setup(servery=self.servery, controller=self.bootConfig["controller"],
+                      configFile=self.bootConfig["configFile"],
+                      configDir=self.bootConfig["configDir"],
+                      insecure=self.bootConfig["insecure"],
+                      tcp=self.bootConfig["tcp"],
+                      adminHttpPort=self.bootConfig["adminHttpPort"],
+                      path=self.bootConfig["staticPath"],
+                      headDirPath=self.bootConfig["headDirPath"])
 
         rep.status = falcon.HTTP_200
         body = dict(msg="locked")
@@ -321,7 +317,7 @@ class IdentifierEnd(doing.DoDoer):
         if "id" in body:
             del body["id"]
 
-        self.org.update(alias, hab.pre, body)
+        self.org.update(hab.pre, body)
         contact = self.org.get(hab.pre)
 
         rep.status = falcon.HTTP_200
@@ -407,7 +403,6 @@ class IdentifierEnd(doing.DoDoer):
             kwa["delpre"] = body["delpre"]
 
         hab = self.hby.makeHab(name=alias, **kwa)
-        self.extend([oobiing.OobiLoader(hby=self.hby, auto=True)])
         self.cues.append(dict(pre=hab.pre))
 
         icp = hab.makeOwnInception()
@@ -838,7 +833,7 @@ class CredentialEnd(doing.DoDoer):
 
     """
 
-    def __init__(self, hby, rgy, registrar, credentialer, verifier, cues=None):
+    def __init__(self, hby, rgy, registrar, credentialer, verifier, notifier):
         """ Create endpoint for issuing and listing credentials
 
         Endpoints for issuing and listing credentials from non-group identfiers only
@@ -849,7 +844,7 @@ class CredentialEnd(doing.DoDoer):
             verifier (Verifier): credential verifier
             registrar (Registrar): credential registry protocol manager
             credentialer: (Credentialer): credential protocol manager
-            cues (Deck): outbound notifications
+            notifier (Notifier): outbound notifications
 
         """
         self.hby = hby
@@ -858,7 +853,7 @@ class CredentialEnd(doing.DoDoer):
         self.registrar = registrar
         self.verifier = verifier
         self.postman = forwarding.Postman(hby=self.hby)
-        self.cues = cues if cues is not None else decking.Deck()
+        self.notifier = notifier
         self.evts = decking.Deck()
 
         super(CredentialEnd, self).__init__(doers=[self.postman, doing.doify(self.evtDo)])
@@ -1503,26 +1498,18 @@ class CredentialEnd(doing.DoDoer):
 
             if route == "/iss/complete":
                 if self.credentialer.complete(said=said):
-                    self.cues.append(dict(
-                        kin="notification",
-                        topic=tpc,
-                        msg=dict(
-                            r=route,
-                            a=dict(d=said)
-                        )
+                    self.notifier.add(dict(
+                        r=f"{tpc}{route}",
+                        a=dict(d=said),
                     ))
                 else:
                     self.evts.append(evt)
 
             elif route == "/rev/complete":
                 if self.registrar.complete(pre=said, sn=1):
-                    self.cues.append(dict(
-                        kin="notification",
-                        topic=tpc,
-                        msg=dict(
-                            r=route,
-                            a=dict(d=said)
-                        )
+                    self.notifier.add(dict(
+                        r=f"{tpc}{route}",
+                        a=dict(d=said),
                     ))
                 else:
                     self.evts.append(evt)
@@ -1583,9 +1570,9 @@ class PresentationEnd:
 
 class MultisigEndBase(doing.DoDoer):
 
-    def __init__(self, counselor, cues, doers):
+    def __init__(self, counselor, notifier, doers):
 
-        self.cues = cues
+        self.notifier = notifier
         self.counselor = counselor
         self.evts = decking.Deck()
         doers.extend([doing.doify(self.evtDo)])
@@ -1623,13 +1610,9 @@ class MultisigEndBase(doing.DoDoer):
             seqner = coring.Seqner(sn=sn)
 
             if self.counselor.complete(prefixer, seqner, saider):
-                self.cues.append(dict(
-                    kin="notification",
-                    topic="/multisig",
-                    msg=dict(
-                        r=route,
-                        a=dict(i=pre, s=sn)
-                    )
+                self.notifier.add(attrs=dict(
+                    r=f"/multisig{route}",
+                    a=dict(i=pre, s=sn),
                 ))
             else:
                 self.evts.append(evt)
@@ -1643,7 +1626,7 @@ class MultisigInceptEnd(MultisigEndBase):
 
     """
 
-    def __init__(self, hby, counselor, cues=None):
+    def __init__(self, hby, counselor, notifier):
         """ Create an endpoint resource for creating or participating in multisig group identifiers
 
         Parameters:
@@ -1654,11 +1637,11 @@ class MultisigInceptEnd(MultisigEndBase):
 
         self.hby = hby
         self.counselor = counselor
-        self.cues = cues if cues is not None else decking.Deck()
+        self.notifier = notifier
         self.postman = forwarding.Postman(hby=self.hby)
         doers = [self.postman]
 
-        super(MultisigInceptEnd, self).__init__(cues=self.cues, counselor=counselor, doers=doers)
+        super(MultisigInceptEnd, self).__init__(notifier=notifier, counselor=counselor, doers=doers)
 
     def initialize(self, body, rep, alias):
         if "aids" not in body:
@@ -1694,7 +1677,7 @@ class MultisigInceptEnd(MultisigEndBase):
                 isith = isith.split(",")
 
         inits["isith"] = isith
-        
+
         nsith = None
         if "nsith" in body:
             nsith = body["nsith"]
@@ -1898,15 +1881,14 @@ class MultisigEventEnd(MultisigEndBase):
 
     """
 
-    def __init__(self, hby, counselor, cues=None):
+    def __init__(self, hby, counselor, notifier):
 
         self.hby = hby
         self.counselor = counselor
-        self.cues = cues if cues is not None else decking.Deck()
         self.postman = forwarding.Postman(hby=self.hby)
         doers = [self.postman]
 
-        super(MultisigEventEnd, self).__init__(cues=self.cues, counselor=counselor, doers=doers)
+        super(MultisigEventEnd, self).__init__(notifier=notifier, counselor=counselor, doers=doers)
 
     def initialize(self, body, rep, alias):
         if "aids" not in body:
@@ -2288,321 +2270,6 @@ class MultisigEventEnd(MultisigEndBase):
         return serder
 
 
-class OobiResource(doing.DoDoer):
-    """
-    Resource for managing OOBIs
-
-    """
-
-    def __init__(self, hby, oobiery=None):
-        """ Create Endpoints for discovery and resolution of OOBIs
-
-        Parameters:
-            hby (Habery): identifier database environment
-            oobiery (Optioanl[Oobiery]): optional OOBI loader
-        """
-        self.hby = hby
-
-        self.oobiery = oobiery if oobiery is not None else ending.Oobiery(hby=self.hby)
-        self.postman = forwarding.Postman(hby=self.hby)
-        doers = [self.oobiery, self.postman, doing.doify(self.loadDo)]
-
-        super(OobiResource, self).__init__(doers=doers)
-
-    def on_get_alias(self, req, rep, alias=None):
-        """ OOBI GET endpoint
-
-        Parameters:
-            req: falcon.Request HTTP request
-            rep: falcon.Response HTTP response
-            alias: option route parameter for specific identifier to get
-
-        ---
-        summary:  Get OOBI for specific identifier
-        description:  Generate OOBI for the identifier of the specified alias and role
-        tags:
-           - OOBIs
-        parameters:
-          - in: path
-            name: alias
-            schema:
-              type: string
-            required: true
-            description: human readable alias for the identifier generate OOBI for
-          - in: query
-            name: role
-            schema:
-              type: string
-            required: true
-            description: role for which to generate OOBI
-        responses:
-            200:
-              description: An array of Identifier key state information
-              content:
-                  application/json:
-                    schema:
-                        description: Key state information for current identifiers
-                        type: object
-        """
-
-        hab = self.hby.habByName(alias)
-        if hab is None:
-            rep.status = falcon.HTTP_400
-            rep.text = "Invalid alias to generate OOBI"
-            return
-
-        role = req.params["role"]
-
-        res = dict(role=role)
-        if role in (kering.Roles.witness,):  # Fetch URL OOBIs for all witnesses
-            oobis = []
-            for wit in hab.kever.wits:
-                urls = hab.fetchUrls(eid=wit, scheme=kering.Schemes.http)
-                if not urls:
-                    rep.status = falcon.HTTP_404
-                    rep.text = f"unable to query witness {wit}, no http endpoint"
-                    return
-
-                up = urlparse(urls[kering.Schemes.http])
-                oobis.append(f"http://{up.hostname}:{up.port}/oobi/{hab.pre}/witness/{wit}")
-            res["oobis"] = oobis
-        elif role in (kering.Roles.controller,):  # Fetch any controller URL OOBIs
-            oobis = []
-            urls = hab.fetchUrls(eid=hab.pre, scheme=kering.Schemes.http)
-            if not urls:
-                rep.status = falcon.HTTP_404
-                rep.text = f"unable to query controller {hab.pre}, no http endpoint"
-                return
-            up = urlparse(urls[kering.Schemes.http])
-            oobis.append(f"http://{up.hostname}:{up.port}/oobi/{hab.pre}/controller")
-            res["oobis"] = oobis
-        else:
-            rep.status = falcon.HTTP_404
-            return
-
-        rep.status = falcon.HTTP_200
-        rep.content_type = "application/json"
-        rep.data = json.dumps(res).encode("utf-8")
-
-    def on_post_alias(self, req, rep, alias):
-        """ Resolve OOBI endpoint.
-
-        Parameters:
-            req: falcon.Request HTTP request
-            rep: falcon.Response HTTP response
-            alias: human readable name of the local identifier context for resolving this OOBI
-
-        ---
-        summary: Resolve OOBI and assign an alias for the remote identifier
-        description: Resolve OOBI URL or `rpy` message by process results of request and assign 'alias' in contact
-                     data for resolved identifier
-        tags:
-           - OOBIs
-        parameters:
-          - in: path
-            name: alias
-            schema:
-              type: string
-            required: true
-            description: Human readable alias for the oobi to resolve
-        requestBody:
-            required: true
-            content:
-              application/json:
-                schema:
-                    description: OOBI
-                    properties:
-                        oobialias:
-                          type: string
-                          description: alias to assign to the identifier resolved from this OOBI
-                          required: true
-                        url:
-                          type: string
-                          description:  URL OOBI
-                        rpy:
-                          type: object
-                          description: unsigned KERI `rpy` event message with endpoints
-        responses:
-           202:
-              description: OOBI resolution to key state successful
-
-        """
-        body = req.get_media()
-
-        hab = self.hby.habByName(alias)
-        if hab is None:
-            rep.status = falcon.HTTP_404
-            rep.text = "invalid alias, not found"
-            return
-
-        if "oobialias" not in body:
-            rep.status = falcon.HTTP_400
-            rep.text = "invalid request, oobialias is required"
-            return
-
-        if "url" in body:
-            oobi = body["url"]
-            oobialias = body["oobialias"]
-            # oobialias is alias name for new identifier, alias is local hab that will sign the data
-            self.oobiery.oobis.append(dict(alias=alias, oobialias=oobialias, url=oobi))
-        elif "rpy" in body:
-            pass
-        else:
-            rep.status = falcon.HTTP_400
-            rep.text = "invalid OOBI request body, either 'rpy' or 'url' is required"
-            return
-
-        rep.status = falcon.HTTP_202
-
-    def on_post_share(self, req, rep, alias):
-        """ Share OOBI endpoint.
-
-        Parameters:
-            req: falcon.Request HTTP request
-            rep: falcon.Response HTTP response
-            alias: human readable name of the local identifier context for resolving this OOBI
-
-        ---
-        summary: Share OOBI and alias for remote identifier with other aids
-        description: Send all other participants in a group AID a copy of the OOBI with suggested alias
-        tags:
-           - OOBIs
-        parameters:
-          - in: path
-            name: alias
-            schema:
-              type: string
-            required: true
-            description: Human readable alias for AID to use to sign exn message
-        requestBody:
-            required: true
-            content:
-              application/json:
-                schema:
-                    description: OOBI
-                    properties:
-                        oobis:
-                            type: array
-                            items:
-                               type: object
-                               properties:
-                                  alias:
-                                    type: string
-                                    description: alias to assign to the identifier resolved from this OOBI
-                                    required: true
-                                  url:
-                                    type: string
-                                    description:  URL OOBI
-        responses:
-           202:
-              description: OOBI resolution to key state successful
-
-        """
-        body = req.get_media()
-        hab = self.hby.habByName(alias)
-        if hab is None:
-            rep.status = falcon.HTTP_404
-            rep.text = f"Unknown identifier {alias}"
-            return
-
-        if hab.phab is None:
-            rep.status = falcon.HTTP_400
-            rep.text = f"Identifer for {alias} is not a group hab, not supported"
-            return
-
-        oobis = body["oobis"]
-        for aid in hab.aids:
-            if aid == hab.phab.pre:
-                continue
-
-            for oobi in oobis:
-                exn, atc = delegating.oobiRequestExn(hab.phab, aid, oobi["alias"], oobi["url"])
-                self.postman.send(src=hab.phab.pre, dest=aid, topic="delegate", serder=exn, attachment=atc)
-
-        rep.status = falcon.HTTP_200
-        return
-
-    def on_post(self, req, rep):
-        """ Resolve OOBI endpoint.
-
-        Parameters:
-            req: falcon.Request HTTP request
-            rep: falcon.Response HTTP response
-
-        ---
-        summary: Resolve OOBI
-        description: Resolve OOBI URL or `rpy` message by process results of request
-        tags:
-           - OOBIs
-        parameters:
-          - in: path
-            name: alias
-            schema:
-              type: string
-            required: true
-            description: Human readable alias for the oobi to resolve
-        requestBody:
-            required: true
-            content:
-              application/json:
-                schema:
-                    description: OOBI
-                    properties:
-                        url:
-                          type: string
-                          description:  URL OOBI
-                        rpy:
-                          type: object
-                          description: unsigned KERI `rpy` event message with endpoints
-        responses:
-           202:
-              description: OOBI resolution to key state successful
-
-        """
-        body = req.get_media()
-
-        if "url" in body:
-            oobi = body["url"]
-            self.oobiery.oobis.append(dict(url=oobi))
-        elif "rpy" in body:
-            pass
-        else:
-            rep.status = falcon.HTTP_400
-            rep.text = "invalid OOBI request body, either 'rpy' or 'url' is required"
-            return
-
-        rep.status = falcon.HTTP_202
-
-    def loadDo(self, tymth, tock=0.0):
-        """ Load oobis
-
-        Parameters:
-            tymth (function): injected function wrapper closure returned by .tymen() of
-                Tymist instance. Calling tymth() returns associated Tymist .tyme.
-            tock (float): injected initial tock value
-
-        Returns:  doifiable Doist compatible generator method for loading oobis using
-        the Oobiery
-        """
-        # enter context
-        self.wind(tymth)
-        self.tock = tock
-        _ = (yield self.tock)
-
-        while True:
-            if self.oobiery.cues:
-                cue = self.oobiery.cues.popleft()
-                kin = cue["kin"]
-                if kin in ("resolved",):
-                    pass
-                if kin in ("failed",):
-                    pass
-
-                break
-
-            yield 1.0
-
-
 class ChallengeEnd:
     """ Resource for Challenge/Response Endpoints """
 
@@ -2725,6 +2392,136 @@ class ChallengeEnd:
         rep.status = falcon.HTTP_202
 
 
+class NotificationEnd:
+    def __init__(self, notifier):
+        """
+        REST APIs for Notifications
+
+        Args:
+            notifier (Notifier): notifier database containing notifications for the controller of the agent
+
+        """
+        self.notifier = notifier
+
+    def on_get(self, req, rep):
+        """ Notification GET endpoint
+
+        Parameters:
+            req: falcon.Request HTTP request
+            rep: falcon.Response HTTP response
+        ---
+        summary:  Get list of notifcations for the controller of the agent
+        description:  Get list of notifcations for the controller of the agent.  Notifications will
+                       be sorted by creation date/time
+        parameters:
+          - in: query
+            name: last
+            schema:
+              type: string
+            required: false
+            description: qb64 SAID of last notification seen
+          - in: query
+            name: limit
+            schema:
+              type: integer
+            required: false
+            description: size of the result list.  Defaults to 25
+        tags:
+           - Notifications
+
+        responses:
+           200:
+              description: List of contact information for remote identifiers
+        """
+        last = req.params.get("last")
+        limit = req.params.get("limit")
+
+        limit = int(limit) if limit is not None else 25
+
+        if last is not None:
+            lastNote = self.notifier.get(last)
+            if lastNote is not None:
+                start = lastNote.datetime
+            else:
+                start = ""
+        else:
+            start = ""
+
+        notes = self.notifier.getNotes(start=start, limit=limit)
+        out = [note.pad for note in notes]
+
+        rep.status = falcon.HTTP_200
+        rep.data = json.dumps(out).encode("utf-8")
+
+    def on_put_said(self, _, rep, said):
+        """ Notification PUT endpoint
+
+        Parameters:
+            _: falcon.Request HTTP request
+            rep: falcon.Response HTTP response
+            said: qb64 SAID of notification to mark as read
+
+        ---
+        summary:  Mark notification as read
+        description:  Mark notification as read
+        tags:
+           - Notifications
+        parameters:
+          - in: path
+            name: said
+            schema:
+              type: string
+            required: true
+            description: qb64 said of note to mark as read
+        responses:
+           202:
+              description: Notification successfully marked as read for prefix
+           404:
+              description: No notification information found for SAID
+        """
+        mared = self.notifier.mar(said)
+        if not mared:
+            rep.status = falcon.HTTP_404
+            rep.text = f"no notification to mark as read for {said}"
+            return
+
+        rep.status = falcon.HTTP_202
+
+    def on_delete_said(self, _, rep, said):
+        """ Notification DELETE endpoint
+
+        Parameters:
+            _: falcon.Request HTTP request
+            rep: falcon.Response HTTP response
+            said: qb64 SAID of notification to delete
+
+        ---
+        summary:  Delete notification
+        description:  Delete notification
+        tags:
+           - Notifications
+        parameters:
+          - in: path
+            name: said
+            schema:
+              type: string
+            required: true
+            description: qb64 said of note to delete
+        responses:
+           202:
+              description: Notification successfully deleted for prefix
+           404:
+              description: No notification information found for prefix
+        """
+        deleted = self.notifier.noter.rem(said)
+        if not deleted:
+            rep.status = falcon.HTTP_404
+            rep.text = f"no notification to delete for {said}"
+            return
+
+        rep.status = falcon.HTTP_202
+
+
 class ContactEnd:
 
     def __init__(self, hby, org):
@@ -2810,13 +2607,12 @@ class ContactEnd:
             rep.status = falcon.HTTP_200
             rep.data = json.dumps(data).encode("utf-8")
 
-    def on_post_alias(self, req, rep, prefix, alias):
+    def on_post(self, req, rep, prefix):
         """ Contact plural GET endpoint
 
         Parameters:
             req: falcon.Request HTTP request
             rep: falcon.Response HTTP response
-            alias: human readable name of identifier to use to sign the contact data
             prefix: human readable name of identifier to replace contact information
 
        ---
@@ -2826,12 +2622,6 @@ class ContactEnd:
         tags:
            - Contacts
         parameters:
-          - in: path
-            name: alias
-            schema:
-              type: string
-            required: true
-            description: Human readable alias identifier to sign contact with
           - in: path
             name: prefix
             schema:
@@ -2868,7 +2658,7 @@ class ContactEnd:
         if "id" in body:
             del body["id"]
 
-        self.org.replace(alias, prefix, body)
+        self.org.replace(prefix, body)
         contact = self.org.get(prefix)
 
         rep.status = falcon.HTTP_200
@@ -3010,14 +2800,13 @@ class ContactEnd:
         rep.status = falcon.HTTP_200
         rep.data = json.dumps(contact).encode("utf-8")
 
-    def on_put_alias(self, req, rep, prefix, alias):
+    def on_put(self, req, rep, prefix):
         """ Contact PUT endpoint
 
         Parameters:
             req: falcon.Request HTTP request
             rep: falcon.Response HTTP response
             prefix: qb64 identifier to update contact information
-            alias (str): human readable name of identifier to use to sign the challange/response
 
         ---
         summary:  Update provided fields in contact information associated with remote identfier prefix
@@ -3026,12 +2815,6 @@ class ContactEnd:
         tags:
            - Contacts
         parameters:
-          - in: path
-            name: alias
-            schema:
-              type: string
-            required: true
-            description: Human readable alias identifier to sign contact with
           - in: path
             name: prefix
             schema:
@@ -3068,7 +2851,7 @@ class ContactEnd:
         if "id" in body:
             del body["id"]
 
-        self.org.update(alias, prefix, body)
+        self.org.update(prefix, body)
         contact = self.org.get(prefix)
 
         rep.status = falcon.HTTP_200
@@ -3317,24 +3100,66 @@ class EscrowEnd:
         rep.content_type = "application/json"
         rep.data = json.dumps(escrows, indent=2).encode("utf-8")
 
+    def on_get_partial(self, req, rep, pre, dig):
+        """
+
+        Parameters:
+            req (Request): falcon.Request HTTP request
+            rep (Response): falcon.Response HTTP response
+            pre (str): qb64 identifier prefix of event to load
+            dig (str) qb64 SAID of the event to load
+
+        ---
+        summary:  Display escrow status for entire database or search for single identifier in escrows
+        description:  Display escrow status for entire database or search for single identifier in escrows
+        tags:
+           - Escrows
+        parameters:
+          - in: path
+            name: pre
+            schema:
+              type: string
+            required: true
+            description: qb64 identifier prefix of event to load
+          - in: path
+            name: dig
+            schema:
+              type: string
+            required: true
+            description: qb64 SAID of the event to load
+        responses:
+           200:
+              description: Event information
+           404:
+              description: Event match pre and dig not found
+
+
+        """
+        try:
+            event = loadEvent(self.db, pre, dig)
+        except ValueError:
+            rep.status = falcon.HTTP_404
+            rep.text = "Event not found"
+            return
+
+        rep.status = falcon.HTTP_200
+        rep.content_type = "application/json"
+        rep.data = json.dumps(event, indent=2).encode("utf-8")
+
 
 def loadEnds(app, *,
              path,
              hby,
              rgy,
              rep,
-             mbx,
              verifier,
              counselor,
+             signaler,
+             notifier,
              registrar,
              credentialer,
              servery,
-             bootConfig,
-             notifications=None,
-             rxbs=None,
-             queries=None,
-             oobiery=None,
-             **kwargs):
+             bootConfig):
     """
     Load endpoints for KIWI admin interface into the provided Falcon app
 
@@ -3344,17 +3169,14 @@ def loadEnds(app, *,
         hby (Habery): database environment for all endpoints
         rgy (Regery): database environment for credentials
         rep (Respondant): that routes responses to the appropriate mailboxes
-        mbx (Mailboxer): mailbox storage class
         verifier (Verifier): that process credentials
         registrar (Registrar): credential registry protocol manager
         counselor (Counselor): group multisig identifier communication manager
+        signaler (Signaler):  generator of transient signals to controller of agent
+        notifier (Notifier):  generator of messages for review by controller of agent
         credentialer (Credentialer): credential issuance protocol manager
         servery (Servery):
         bootConfig: (dict): original launch configuration of Servery
-        notifications (Deck): cue to forward agent notifications to controller
-        rxbs (bytearray): output queue of bytes for message processing
-        queries (Deck): query cues for HttpEnd to start mailbox stream
-        oobiery (Optioanl[Oobiery]): optional OOBI loader
 
     Returns:
         list: doers from registering endpoints
@@ -3384,19 +3206,20 @@ def loadEnds(app, *,
     presentationEnd = PresentationEnd(rep=rep)
     app.add_route("/presentation", presentationEnd)
 
-    multiIcpEnd = MultisigInceptEnd(hby=hby, counselor=counselor)
+    multiIcpEnd = MultisigInceptEnd(hby=hby, counselor=counselor, notifier=notifier)
     app.add_route("/groups/{alias}/icp", multiIcpEnd)
-    multiEvtEnd = MultisigEventEnd(hby=hby, counselor=counselor)
+    multiEvtEnd = MultisigEventEnd(hby=hby, counselor=counselor, notifier=notifier)
     app.add_route("/groups/{alias}/rot", multiEvtEnd, suffix="rot")
     app.add_route("/groups/{alias}/ixn", multiEvtEnd, suffix="ixn")
 
-    credsEnd = CredentialEnd(hby=hby, rgy=rgy, verifier=verifier, registrar=registrar, credentialer=credentialer)
+    credsEnd = CredentialEnd(hby=hby, rgy=rgy, verifier=verifier, registrar=registrar, credentialer=credentialer,
+                             notifier=notifier)
     app.add_route("/credentials/{alias}", credsEnd)
     app.add_route("/credentials/{alias}/{said}", credsEnd, suffix="export")
     app.add_route("/groups/{alias}/credentials", credsEnd, suffix="iss")
     app.add_route("/groups/{alias}/credentials/{said}/rev", credsEnd, suffix="rev")
 
-    oobiEnd = OobiResource(hby=hby, oobiery=oobiery)
+    oobiEnd = oobiing.OobiResource(hby=hby)
     app.add_route("/oobi/{alias}", oobiEnd, suffix="alias")
     app.add_route("/oobi", oobiEnd)
     app.add_route("/oobi/groups/{alias}/share", oobiEnd, suffix="share")
@@ -3408,10 +3231,13 @@ def loadEnds(app, *,
     org = connecting.Organizer(hby=hby)
     contact = ContactEnd(hby=hby, org=org)
 
-    app.add_route("/contacts/{prefix}/{alias}", contact, suffix="alias")
     app.add_route("/contacts/{prefix}/img", contact, suffix="img")
     app.add_route("/contacts/{prefix}", contact)
     app.add_route("/contacts", contact, suffix="list")
+
+    notes = NotificationEnd(notifier=notifier)
+    app.add_route("/notifications", notes)
+    app.add_route("/notifications/{said}", notes, suffix="said")
 
     schemaEnd = SchemaEnd(db=hby.db)
     app.add_route("/schema", schemaEnd, suffix="list")
@@ -3419,19 +3245,15 @@ def loadEnds(app, *,
 
     escrowEnd = EscrowEnd(db=hby.db)
     app.add_route("/escrows", escrowEnd)
+    app.add_route("/escrows/{pre}/{dig}", escrowEnd, suffix="partial")
 
-    httpEnd = indirecting.HttpEnd(rxbs=rxbs, mbx=mbx, qrycues=queries)
-    app.add_route("/mbx", httpEnd, suffix="mbx")
-
-    resources = [identifierEnd, MultisigInceptEnd, registryEnd, oobiEnd, credsEnd, keyEnd,
+    signalEnd = signaling.loadEnds(app, signals=signaler.signals)
+    resources = [identifierEnd, MultisigInceptEnd, registryEnd, oobiEnd, credsEnd, keyEnd, signalEnd,
                  presentationEnd, multiIcpEnd, multiEvtEnd, chacha, contact, escrowEnd, lockEnd]
 
     app.add_route("/spec.yaml", specing.SpecResource(app=app, title='KERI Interactive Web Interface API',
                                                      resources=resources))
-    notifications = notifications if notifications is not None else decking.Deck()
-    funnel = cueing.Funneler(srcs=[multiIcpEnd.cues, multiEvtEnd.cues, credsEnd.cues], dest=notifications)
-
-    return [identifierEnd, registryEnd, oobiEnd, multiIcpEnd, multiEvtEnd, credsEnd, funnel, lockEnd]
+    return [identifierEnd, registryEnd, oobiEnd, multiIcpEnd, multiEvtEnd, credsEnd, lockEnd]
 
 
 def setup(hby, rgy, servery, bootConfig, *, controller="", insecure=False, staticPath="", **kwargs):
@@ -3444,7 +3266,6 @@ def setup(hby, rgy, servery, bootConfig, *, controller="", insecure=False, stati
         bootConfig (dict): original configuration at launch, used to reset during lock
         controller (str): qb64 identifier prefix of the controller of this agent
         insecure (bool): allow unsigned HTTP requests to the admin interface (non-production ONLY)
-        tcp (int): TCP port for agent to listen on for incoming direct connections
         staticPath (str): path to static content for this agent
 
     Returns:
@@ -3453,8 +3274,10 @@ def setup(hby, rgy, servery, bootConfig, *, controller="", insecure=False, stati
     """
 
     # setup doers
-    doers = [habbing.HaberyDoer(habery=hby)]
+    doers = [habbing.HaberyDoer(habery=hby), credentialing.RegeryDoer(rgy=rgy)]
 
+    signaler = signaling.Signaler()
+    notifier = notifying.Notifier(hby=hby, signaler=signaler)
     verifier = verifying.Verifier(hby=hby, reger=rgy.reger)
     wallet = walleting.Wallet(reger=verifier.reger, name=hby.name)
 
@@ -3467,7 +3290,7 @@ def setup(hby, rgy, servery, bootConfig, *, controller="", insecure=False, stati
     registrar = credentialing.Registrar(hby=hby, rgy=rgy, counselor=counselor)
     credentialer = credentialing.Credentialer(hby=hby, rgy=rgy, registrar=registrar, verifier=verifier)
 
-    issueHandler = protocoling.IssueHandler(hby=hby, rgy=rgy, mbx=mbx, controller=controller)
+    issueHandler = protocoling.IssueHandler(hby=hby, rgy=rgy, notifier=notifier)
     requestHandler = protocoling.PresentationRequestHandler(hby=hby, wallet=wallet)
     applyHandler = protocoling.ApplyHandler(hby=hby, rgy=rgy, verifier=verifier, name=hby.name)
     proofHandler = protocoling.PresentationProofHandler(proofs=proofs)
@@ -3475,10 +3298,10 @@ def setup(hby, rgy, servery, bootConfig, *, controller="", insecure=False, stati
     handlers.extend([issueHandler, requestHandler, proofHandler, applyHandler])
 
     exchanger = exchanging.Exchanger(hby=hby, handlers=handlers)
-    challenging.loadHandlers(hby=hby, exc=exchanger, mbx=mbx, controller=controller)
-    grouping.loadHandlers(hby=hby, exc=exchanger, mbx=mbx, controller=controller)
+    challenging.loadHandlers(signaler=signaler, exc=exchanger)
+    grouping.loadHandlers(hby=hby, exc=exchanger, notifier=notifier)
     oobiery = ending.Oobiery(hby=hby)
-    delegating.loadHandlers(hby=hby, exc=exchanger, mbx=mbx, controller=controller, oobiery=oobiery)
+    delegating.loadHandlers(hby=hby, exc=exchanger, notifier=notifier)
 
     rep = storing.Respondant(hby=hby, mbx=mbx)
     cues = decking.Deck()
@@ -3502,17 +3325,41 @@ def setup(hby, rgy, servery, bootConfig, *, controller="", insecure=False, stati
     app.req_options.media_handlers.update(media.Handlers())
     app.resp_options.media_handlers.update(media.Handlers())
 
-    notifier = storing.Notifier(controller=controller, mbx=mbx)
-    queries = decking.Deck()
-    endDoers = loadEnds(app, path=staticPath, hby=hby, rgy=rgy, rep=rep, mbx=mbx, notifications=notifier.notifs,
-                        verifier=verifier, counselor=counselor, registrar=registrar, credentialer=credentialer,
-                        servery=servery, bootConfig=bootConfig, rxbs=mbd.ims, queries=queries, **kwargs)
+    endDoers = loadEnds(app, path=staticPath, hby=hby, rgy=rgy, rep=rep, verifier=verifier,
+                        counselor=counselor, registrar=registrar, credentialer=credentialer,
+                        servery=servery, bootConfig=bootConfig, notifier=notifier, signaler=signaler,
+                        **kwargs)
 
-    servery.msgs.append(dict(app=app))
-    doers.extend([rep, counselor, registrar, credentialer, notifier, oobiery])
+    obi = dict(oobiery=oobiery)
+    doers.extend([rep, counselor, registrar, credentialer, oobiery, doing.doify(oobiCueDo, **obi)])
     doers.extend(endDoers)
+    servery.msgs.append(dict(app=app, doers=doers))
 
-    return doers
+
+def oobiCueDo(tymth, tock=0.0, **opts):
+    """ Process Client responses by parsing the messages and removing the client/doer
+
+    Parameters:
+        tymth (function): injected function wrapper closure returned by .tymen() of
+            Tymist instance. Calling tymth() returns associated Tymist .tyme.
+        tock (float): injected initial tock value
+
+    """
+    obi = opts["oobiery"]
+    _ = (yield tock)
+
+    while True:
+        while obi.cues:
+            cue = obi.cues.popleft()
+            kin = cue["kin"]
+            oobi = cue["oobi"]
+            if kin in ("resolved",):
+                print(oobi, "succeeded")
+            elif kin in ("failed",):
+                print(oobi, "failed")
+
+            yield 0.25
+        yield tock
 
 
 def loadEvent(db, preb, dig):
@@ -3523,6 +3370,12 @@ def loadEvent(db, preb, dig):
 
     srdr = coring.Serder(raw=bytes(raw))
     event["ked"] = srdr.ked
+
+    sn = srdr.sn
+    sdig = db.getKeLast(key=dbing.snKey(pre=preb,
+                                        sn=sn))
+    if sdig is not None:
+        event["stored"] = True
 
     # add indexed signatures to attachments
     sigs = db.getSigs(key=dgkey)

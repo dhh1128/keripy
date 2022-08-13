@@ -9,7 +9,10 @@ from hio import help
 from hio.base import doing
 
 from keri.app import habbing
-from keri.app.cli.common import existing, oobiing
+from keri.app.cli.common import existing
+from keri.db import basing
+from keri.end import ending
+from keri.help import helping
 
 logger = help.ogler.getLogger()
 
@@ -21,8 +24,6 @@ parser.set_defaults(handler=lambda args: resolve(args),
 parser.add_argument('--name', '-n', help='keystore name and file location of KERI keystore', required=True)
 parser.add_argument('--base', '-b', help='additional optional prefix to file location of KERI keystore',
                     required=False, default="")
-parser.add_argument('--alias', '-a', help='human readable alias for the new identifier prefix', required=False,
-                    default=None)
 parser.add_argument("--oobi", "-o", help="out-of-band introduciton to load", required=True)
 parser.add_argument("--oobi-alias", dest="oobiAlias", help="alias for AID resolved from out-of-band introduciton",
                     required=False, default=None)
@@ -44,10 +45,9 @@ def resolve(args):
     base = args.base
     bran = args.bran
     oobi = args.oobi
-    alias = args.alias
     oobiAlias = args.oobiAlias
 
-    icpDoer = OobiDoer(name=name, oobi=oobi, bran=bran, base=base, alias=alias, oobiAlias=oobiAlias)
+    icpDoer = OobiDoer(name=name, oobi=oobi, bran=bran, base=base, oobiAlias=oobiAlias)
 
     doers = [icpDoer]
     return doers
@@ -56,22 +56,21 @@ def resolve(args):
 class OobiDoer(doing.DoDoer):
     """ DoDoer for loading oobis and waiting for the results """
 
-    def __init__(self, name, oobi, alias, oobiAlias, bran=None, base=None):
+    def __init__(self, name, oobi, oobiAlias, bran=None, base=None):
 
         self.processed = 0
 
         self.hby = existing.setupHby(name=name, base=base, bran=bran)
         self.hbyDoer = habbing.HaberyDoer(habery=self.hby)
 
-        self.obl = oobiing.OobiLoader(hby=self.hby)
-        if alias is None or oobiAlias is None:
-            msg = dict(url=oobi)
-        else:
-            msg = dict(alias=alias, oobialias=oobiAlias, url=oobi)
+        obr = basing.OobiRecord(date=helping.nowIso8601())
+        if oobiAlias is not None:
+            obr.oobialias = oobiAlias
 
-        self.obl.queue([msg])
+        self.hby.db.oobis.put(keys=(oobi,), val=obr)
 
-        doers = [self.hbyDoer, self.obl, doing.doify(self.waitDo)]
+        self.obi = ending.Oobiery(hby=self.hby)
+        doers = [self.hbyDoer, self.obi, doing.doify(self.waitDo)]
 
         super(OobiDoer, self).__init__(doers=doers)
 
@@ -91,7 +90,12 @@ class OobiDoer(doing.DoDoer):
         self.tock = tock
         _ = (yield self.tock)
 
-        while not self.obl.done:
+        while not self.obi.cues:
             yield 0.25
 
-        self.remove([self.hbyDoer, self.obl])
+        cue = self.obi.cues.popleft()
+        kin = cue["kin"]
+        oobi = cue["oobi"]
+        print(oobi, kin)
+
+        self.remove([self.hbyDoer, self.obi])

@@ -50,8 +50,6 @@ def test_direct_mode_bob_eve_demo():
     bob = bobSerder.ked["i"]
     assert bob == 'EdwS_D6wppLqfIp5LSgly8GTScg5OWBaa7thzEnBqHvw'
 
-
-    # set of secrets (seeds for private keys)
     eveSecrets = ['AgjD4nRlycmM5cPcAkfOATAp8wVldRsnc9f1tiwctXlw',
                   'AKUotEE0eAheKdDJh9QvNmSEmO_bjIav8V_GmctGpuCQ',
                   'AK-nVhMMJciMPvmF5VZE_9H-nhrgng9aJWf7_UHPtRNM',
@@ -531,13 +529,13 @@ def test_indirect_mode_sam_cam_wit_demo():
 
         # setup the witness
         witHab = witHby.makeHab(name="Wit",
-                                 isith=1,
+                                 isith='1',
                                  icount=1,
                                  transferable=False)
         #witHab = habbing.Habitat(name='Wit',
                                  #ks=witKS,
                                  #db=witDB,
-                                 #isith=1,
+                                 #isith='1',
                                  #icount=1,
                                  #temp=True,
                                  #transferable=False)

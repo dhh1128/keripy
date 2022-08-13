@@ -3,18 +3,18 @@
 keri.kli.commands module
 
 """
+import sys
 import argparse
-import json
+from typing import Union
 from dataclasses import dataclass
+import json
 from json import JSONDecodeError
 
-import sys
 from hio import help
 from hio.base import doing
 
 from keri.app import habbing, agenting, indirecting, configing, delegating, forwarding
 from keri.app.cli.common import existing
-from keri.core import coring
 
 logger = help.ogler.getLogger()
 
@@ -44,9 +44,9 @@ class InceptOptions:
     transferable: bool
     wits: list
     icount: int
-    isith: int
+    isith:  Union[str, list]
     ncount: int
-    nsith: int
+    nsith:  Union[str, list] = '0'
     toad: int = 0
     delpre: str = None
     estOnly: bool = False
@@ -94,7 +94,7 @@ class InceptDoer(doing.DoDoer):
         cf = None
         if config is not None:
             cf = configing.Configer(name=name,
-                                    base=base,
+                                    base="",
                                     headDirPath=config,
                                     temp=False,
                                     reopen=True,

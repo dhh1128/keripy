@@ -5,14 +5,13 @@ keri.kli.commands module
 """
 import argparse
 import getpass
-from contextlib import contextmanager
 
 from hio import help
 from hio.base import doing
 
-from keri.app import habbing, configing
-from keri.app.cli.common import oobiing
+from keri.app import habbing, configing, oobiing
 from keri.app.keeping import Algos
+from keri.end import ending
 from keri.kering import ConfigurationError
 from keri.vdr import credentialing
 
@@ -104,7 +103,7 @@ class InitDoer(doing.DoDoer):
         cf = None
         if configFile is not None:
             cf = configing.Configer(name=configFile,
-                                    base=base,
+                                    base="",
                                     headDirPath=configDir,
                                     temp=False,
                                     reopen=True,
@@ -121,12 +120,24 @@ class InitDoer(doing.DoDoer):
 
         oc = hby.db.oobis.cntAll()
         if oc:
-            print("\nLoading OOBIs...")
+            print(f"\nLoading {oc} OOBIs...")
 
-            obl = oobiing.OobiLoader(hby=hby, auto=True)
-            self.extend([obl])
+            obi = ending.Oobiery(hby=hby)
+            self.extend([obi])
 
-            while not obl.done:
+            while oc > 0:
+                while obi.cues:
+                    cue = obi.cues.popleft()
+                    oc -= 1
+                    kin = cue["kin"]
+                    oobi = cue["oobi"]
+                    if kin in ("resolved",):
+                        print(oobi, "succeeded")
+                    if kin in ("failed",):
+                        print(oobi, "failed")
+
+                    yield 0.25
                 yield self.tock
+            self.remove([obi])
 
         hby.close()

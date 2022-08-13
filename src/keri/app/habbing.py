@@ -14,7 +14,7 @@ from hio.core import wiring
 from hio.core.tcp import clienting, serving
 from hio.help import hicting
 
-from . import keeping, configing, directing
+from . import keeping, configing, directing, signing
 from .. import help
 from .. import kering
 from ..core import coring, eventing, parsing, routing
@@ -104,7 +104,7 @@ def openHab(name="test", base="", salt=b'0123456789abcdef', temp=True, cf=None, 
 
     with openHby(name=name, base=base, salt=salt, temp=temp, cf=cf) as hby:
         if (hab := hby.habByName(name)) is None:
-            hab = hby.makeHab(name=name, icount=1, isith=1, ncount=1, nsith=1, **kwa)
+            hab = hby.makeHab(name=name, icount=1, isith='1', ncount=1, nsith='1', **kwa)
 
         yield hby, hab
 
@@ -301,7 +301,7 @@ class Habery:
         self.kvy.registerReplyRoutes(router=self.rtr)
         self.psr = parsing.Parser(framed=True, kvy=self.kvy, rvy=self.rvy)
         self.habs = {}  # empty .habs
-
+        self._signator = None
         self.inited = False
 
         # save init kwy word arg parameters as ._inits in order to later finish
@@ -380,6 +380,9 @@ class Habery:
         except kering.AuthError as ex:
             self.close()
             raise ex
+
+        self._signator = Signator(db=self.db, mgr=self.mgr, temp=self.temp, ks=self.ks, cf=self.cf,
+                                  rtr=self.rtr, kvy=self.kvy, psr=self.psr, rvy=self.rvy)
 
         self.loadHabs()
         self.inited = True
@@ -537,7 +540,7 @@ class Habery:
             self.db.close(clear=self.db.temp or clear)
 
         if self.cf:
-            self.cf.close(clear=self.cf.temp or clear)
+            self.cf.close(clear=self.cf.temp)
 
     def resolveVerifiers(self, pre=None, sn=0, dig=None):
         """
@@ -636,6 +639,74 @@ class Habery:
                     obr = basing.OobiRecord(date=help.toIso8601(dt))
                     self.db.oobis.put(keys=(oobi,), val=obr)
 
+    @property
+    def signator(self):
+        """
+        signator for signing and verifying data at rest for this Habery environment
+        Assumes db initialized.
+
+        Returns:
+            Signator:  signer for data at rest
+        """
+        return self._signator
+
+
+SIGNER = "__signatory__"
+
+
+class Signator:
+    """
+    Signator will create one non-transferable identifier when it is first initialized
+    and use that identifier to sign and verify any data it is passed.  This class can be used
+    to maintain BADA data ensuring that it is signed at rest.
+
+    """
+
+    def __init__(self, db, name=SIGNER, **kwa):
+        """
+        Create a Signator by checking for a signing AID in the Habery database and creating one
+        if it does not exist.
+
+        Args:
+            db (Baser):  Database environment for data signing
+
+        """
+        self.db = db
+        spre = self.db.hbys.get(name)
+        if not spre:
+            self._hab = Hab(name=name, db=db, **kwa)
+            self._hab.make(transferable=False, hidden=True)
+            self.pre = self._hab.pre
+            self.db.hbys.pin(name, self.pre)
+        else:
+            self.pre = spre
+            self._hab = Hab(name=name, db=db,  pre=self.pre, **kwa)
+
+    def sign(self, ser):
+        """ Sign the data in ser with the Signator's private key using the Manager
+
+        Args:
+            ser (bytes): Raw byte data to sign
+
+        Returns:
+            Cigar: signature object for non-transferable key
+
+        """
+        return self._hab.sign(ser, indexed=False)[0]
+
+    def verify(self, ser, cigar):
+        """
+
+        Args:
+            ser(bytes): Raw byte data to verify against signature
+            cigar (Cigar): Single non-transferable signature to verify
+
+        Returns:
+            bool: True means valid signature against data provided
+
+        """
+        return self._hab.kever.verfers[0].verify(cigar.raw, ser)
+
 
 class HaberyDoer(doing.Doer):
     """
@@ -694,7 +765,6 @@ class HaberyDoer(doing.Doer):
     def exit(self):
         """Exit context and close Habery """
         if self.habery.inited and self.habery.free:
-
             self.habery.close(clear=self.habery.temp)
 
 
@@ -776,10 +846,9 @@ class Hab:
 
         self.delpre = None
 
-    def make(self, *, secrecies=None, iridx=0, code=coring.MtrDex.Blake3_256,
-             transferable=True, isith=None, icount=1,
-             nsith=None, ncount=None,
-             toad=None, wits=None, delpre=None, estOnly=False, mskeys=None, msdigers=None):
+    def make(self, *, secrecies=None, iridx=0, code=coring.MtrDex.Blake3_256, transferable=True, isith=None, icount=1,
+             nsith=None, ncount=None, toad=None, wits=None, delpre=None, estOnly=False, mskeys=None, msdigers=None,
+             hidden=False):
         """
         Finish setting up or making Hab from parameters.
         Assumes injected dependencies were already setup.
@@ -801,6 +870,7 @@ class Hab:
                 events allowed in KEL for this Hab
             mskeys (list): Verfers of public keys collected from inception of participants in group identifier
             msdigers (list): Digers of next public keys collected from inception of participants in group identifier
+            hidden (bool): A hidden Hab is not included in the list of Habs.
 
         """
         if not (self.ks.opened and self.db.opened and self.cf.opened):
@@ -812,7 +882,7 @@ class Hab:
             ncount = icount
         if not transferable:
             ncount = 0  # next count
-            nsith = 0
+            nsith = '0'
             code = coring.MtrDex.Ed25519N
 
         if mskeys:
@@ -854,7 +924,7 @@ class Hab:
                                       nkeys=[diger.qb64 for diger in digers],
                                       toad=toad,
                                       wits=wits,
-                                      cnfg=cnfg,)
+                                      cnfg=cnfg, )
         else:
             serder = eventing.incept(keys=keys,
                                      sith=cst,
@@ -873,9 +943,11 @@ class Hab:
         habord = basing.HabitatRecord(prefix=self.pre, pid=None, aids=self.aids)
         if self.phab:
             habord.pid = self.phab.pre
-        self.db.habs.put(keys=self.name,
-                         val=habord)
-        self.prefixes.add(self.pre)
+
+        if not hidden:
+            self.db.habs.put(keys=self.name,
+                             val=habord)
+            self.prefixes.add(self.pre)
 
         # create inception event
         if self.phab:
@@ -909,10 +981,7 @@ class Hab:
         {
           dt: "isodatetime",
           curls: ["tcp://localhost:5620/"],
-          iurls: ["tcp://localhost:5621/?name=eve"],
-          nurls: {
-              {"alias": "GLEIF Root", "oobi":  "http://localhost:3000/root"}
-          }
+          iurls: ["tcp://localhost:5621/?name=eve"]
         }
 
         Config file is meant to be read only at init not changed by app at
@@ -923,6 +992,10 @@ class Hab:
         """
 
         conf = self.cf.get()
+        if self.name not in conf:
+            return
+
+        conf = conf[self.name]
         if "dt" in conf:  # datetime of config file
             dt = help.fromIso8601(conf["dt"])  # raises error if not convert
             msgs = bytearray()
@@ -939,11 +1012,6 @@ class Hab:
                                                    scheme=scheme,
                                                    stamp=help.toIso8601(dt=dt)))
             self.psr.parse(ims=msgs)
-
-            if "nurls" in conf:
-                for oobi in conf["nurls"]:
-                    obr = basing.OobiRecord(date=help.toIso8601(dt), oobialias=oobi["alias"], alias=self.name)
-                    self.db.oobis.put(keys=(oobi["oobi"],), val=obr)
 
     def recreate(self, serder, opre, verfers):
         """ Recreate the Hab with new identifier prefix.
@@ -1203,9 +1271,9 @@ class Hab:
         kever = self.kevers[serder.pre]
         if self.pre not in kever.wits:
             print("Attempt by {} to witness event of {} when not a "
-                             "witness in wits={}.".format(self.pre,
-                                                          serder.pre,
-                                                         kever.wits))
+                  "witness in wits={}.".format(self.pre,
+                                               serder.pre,
+                                               kever.wits))
         index = kever.wits.index(self.pre)
 
         reserder = eventing.receipt(pre=ked["i"],
@@ -1512,7 +1580,7 @@ class Hab:
         route = "/end/role/add" if allow else "/end/role/cut"
         return self.reply(route=route, data=data, stamp=stamp)
 
-    def makeLocScheme(self, url, scheme="http", stamp=None):
+    def makeLocScheme(self, url, eid=None, scheme="http", stamp=None):
         """
         Returns:
            msg (bytearray): reply message of own url service endpoint at scheme
@@ -1520,12 +1588,14 @@ class Hab:
         Parameters:
             url (str): url of endpoint, may have scheme missing or not
                        If url is empty then nullifies location
+            eid (str): qb64 of endpoint provider to be authorized
             scheme (str): url scheme must matche scheme in url if any
             stamp (str): date-time-stamp RFC-3339 profile of iso8601 datetime.
                           None means use now.
 
         """
-        data = dict(eid=self.pre, scheme=scheme, url=url)
+        eid = eid if eid is not None else self.pre
+        data = dict(eid=eid, scheme=scheme, url=url)
         return self.reply(route="/loc/scheme", data=data, stamp=stamp)
 
     def replyLocScheme(self, eid, scheme=None):
@@ -1552,8 +1622,25 @@ class Hab:
 
         urls = self.fetchUrls(eid=eid, scheme=scheme)
         for rscheme, url in urls.firsts():
-            msgs.extend(self.makeLocScheme(url=url, scheme=rscheme))
+            msgs.extend(self.makeLocScheme(eid=eid, url=url, scheme=rscheme))
 
+        return msgs
+
+    def loadLocScheme(self, eid, scheme=None):
+        msgs = bytearray()
+        keys = (eid, scheme)
+        for (pre, _), said in self.db.lans.getItemIter(keys=keys):
+            serder = self.db.rpys.get(keys=(said.qb64,))
+            cigars = self.db.scgs.get(keys=(said.qb64,))
+
+            if len(cigars) == 1:
+                (verfer, cigar) = cigars[0]
+                cigar.verfer = verfer
+            else:
+                cigar = None
+            msgs.extend(eventing.messagize(serder=serder,
+                                           cigars=[cigar],
+                                           pipelined=True))
         return msgs
 
     def replyEndRole(self, cid, role=None, eids=None, scheme=""):
@@ -1603,7 +1690,10 @@ class Hab:
                 # latest key state for cid
                 for eid in kever.wits:
                     if not eids or eid in eids:
-                        msgs.extend(self.replyLocScheme(eid=eid, scheme=scheme))
+                        if eid == self.pre:
+                            msgs.extend(self.replyLocScheme(eid=eid, scheme=scheme))
+                        else:
+                            msgs.extend(self.loadLocScheme(eid=eid, scheme=scheme))
                         if not witness:  # we are not witness, send auth records
                             msgs.extend(self.makeEndRole(eid=eid, role=role))
                 if witness:  # we are witness, set KEL as authz

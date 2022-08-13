@@ -8,7 +8,7 @@ from contextlib import contextmanager
 import time
 from hio.base import doing, tyming
 
-from keri.app import habbing, grouping, storing
+from keri.app import habbing, grouping, storing, notifying
 from keri.core import coring, eventing, parsing
 from keri.db import dbing
 from keri.peer import exchanging
@@ -38,7 +38,7 @@ def test_counselor():
         parsing.Parser().parse(ims=bytearray(icp3), kvy=kev2)
 
         aids = [hab1.pre, hab2.pre, hab3.pre]
-        inits = dict(aids=aids, isith=2, nsith=2, toad=0, wits=[])
+        inits = dict(aids=aids, isith='2', nsith='2', toad=0, wits=[])
 
         # Create group hab with init params
         ghab = hby1.makeGroupHab(group=f"{prefix}_group1", phab=hab1, **inits)
@@ -88,11 +88,11 @@ def test_counselor():
 
         # Partial rotation
         aids = [hab1.pre, hab2.pre]
-        counselor.rotate(ghab=ghab, aids=aids, sith=2, toad=0, cuts=list(), adds=list())
+        counselor.rotate(ghab=ghab, aids=aids, sith='2', toad=0, cuts=list(), adds=list())
         rec = hby1.db.glwe.get(keys=(ghab.pre,))
         assert rec is not None
         assert rec.aids == aids
-        assert rec.sith == 2
+        assert rec.sith == '2'
         assert rec.toad == 0
 
         counselor.processEscrows()  # process escrows to get witness-less event to next step
@@ -190,8 +190,8 @@ def openMutlsig(prefix="test", salt=b'0123456789abcdef', temp=True, **kwa):
             aids=aids,
             toad=0,
             wits=[],
-            isith=3,
-            nsith=3
+            isith='3',
+            nsith='3'
         )
 
         ghab1 = hby1.makeGroupHab(group=f"{prefix}_group1", phab=hab1, **inits)
@@ -238,18 +238,22 @@ def test_multisig_incept(mockHelpingNowUTC):
 
 def test_multisig_rotate(mockHelpingNowUTC):
     with openMutlsig(prefix="test") as ((hby1, ghab1), (_, _), (_, _)):
-        exn, atc = grouping.multisigRotateExn(ghab=ghab1, aids=ghab1.aids, isith=2, toad=0, cuts=[],
+        exn, atc = grouping.multisigRotateExn(ghab=ghab1, aids=ghab1.aids, isith='2', toad=0, cuts=[],
                                               adds=[], data=[])
 
         assert exn.ked["r"] == '/multisig/rot'
-        assert exn.saidb == b'EU3uP2KgAGpMocaQUKtLUT18L93QbTu_aJ-wWQBHU-mw'
-        assert atc == (b'-HABE07_pVCaF6sp9qv-_ufgnqfzySdauT1izcndWMwZzy6c-AABAAAac_9tzL2U'
-                       b'67a7gD8x_0mOCMViQ_KMYamSdxIggWCzNpjLb40S9jEX-NjXJpZR4DXs2j8llesd'
-                       b'PA5xAdWdCgCg')
+        assert exn.saidb == b'EeDS5AxBqN7s8zxUOK6zAezrxLAw4wObbklPBe3QPS34'  # b'EU3uP2KgAGpMocaQUKtLUT18L93QbTu_aJ-wWQBHU-mw'
+        assert atc == (b'-HABE07_pVCaF6sp9qv-_ufgnqfzySdauT1izcndWMwZzy6c-AABAAw-IgLaJmLh'
+                       b'ac8aFvdWcmh40H-ccUKNUdXM6qZQlYTt8owRZwEKVW7013mXNQ35Sr3x_BMHYkrg'
+                       b'amjVPBAikdAA')
+
+        #(b'-HABE07_pVCaF6sp9qv-_ufgnqfzySdauT1izcndWMwZzy6c-AABAAAac_9tzL2U'
+                       #b'67a7gD8x_0mOCMViQ_KMYamSdxIggWCzNpjLb40S9jEX-NjXJpZR4DXs2j8llesd'
+                       #b'PA5xAdWdCgCg')
         data = exn.ked["a"]
         assert data["aids"] == ghab1.aids
         assert data["gid"] == ghab1.pre
-        assert data["sith"] == 2
+        assert data["sith"] == '2'
         assert data["toad"] == 0
         assert data["cuts"] == []
         assert data["adds"] == []
@@ -280,8 +284,8 @@ def test_multisig_incept_handler(mockHelpingNowUTC):
         serder = eventing.incept(keys=["DUEFuPeaDH2TySI-wX7CY_uW5FF41LRu3a59jxg1_pMs"],
                                  nkeys=["DLONLed3zFEWa0p21fvi1Jf5-x-EoyEPqFvOki3YhP1k"])
 
-        mbx = storing.Mailboxer(name=hab.name, temp=True)
-        handler = grouping.MultisigInceptHandler(hby=hby, mbx=mbx, controller=ctrl)
+        notifier = notifying.Notifier(hby=hby)
+        handler = grouping.MultisigInceptHandler(hby=hby, notifier=notifier)
 
         # Pass message missing keys:
         handler.msgs.append(dict(name="value"))
@@ -301,20 +305,17 @@ def test_multisig_incept_handler(mockHelpingNowUTC):
             time.sleep(doist.tock)
 
         assert doist.limit == limit
+        assert len(notifier.signaler.signals) == 1
         doist.exit()
-
-        key = f"{ctrl}/multisig".encode("utf-8")
-        msgs = mbx.getTopicMsgs(topic=key)
-        assert len(msgs) == 1
 
     with habbing.openHab(name="test0", temp=True) as (hby, hab):
 
         aids = [hab.pre, "EfrzbTSWjccrTdNRsFUUfwaJ2dpYxu9_5jI2PJ-TRri0"]
         exn, atc = grouping.multisigInceptExn(hab=hab, aids=aids, ked=hab.kever.serder.ked)
 
-        mbx = storing.Mailboxer(name=hab.name, temp=True)
+        notifier = notifying.Notifier(hby=hby)
         exc = exchanging.Exchanger(hby=hby, handlers=[])
-        grouping.loadHandlers(hby=hby, exc=exc, mbx=mbx, controller=ctrl)
+        grouping.loadHandlers(hby=hby, exc=exc, notifier=notifier)
 
         ims = bytearray(exn.raw)
         ims.extend(atc)
@@ -334,24 +335,15 @@ def test_multisig_incept_handler(mockHelpingNowUTC):
         assert doist.limit == limit
         doist.exit()
 
-        key = f"{ctrl}/multisig".encode("utf-8")
-        msgs = mbx.getTopicMsgs(topic=key)
-        assert len(msgs) == 1
-        assert msgs[0] == (b'{"src": "E36XYdtOOxqVBFbUxkiUXZX9-_ctxga4E_JtKl8IEbFI", "r": "/icp/init", "a'
-                           b'ids": ["E36XYdtOOxqVBFbUxkiUXZX9-_ctxga4E_JtKl8IEbFI", "EfrzbTSWjccrTdNRsFUU'
-                           b'fwaJ2dpYxu9_5jI2PJ-TRri0"], "ked": {"v": "KERI10JSON00012b_", "t": "icp", "d'
-                           b'": "E36XYdtOOxqVBFbUxkiUXZX9-_ctxga4E_JtKl8IEbFI", "i": "E36XYdtOOxqVBFbUxki'
-                           b'UXZX9-_ctxga4E_JtKl8IEbFI", "s": "0", "kt": "1", "k": ["DOWIhazhEMt2Ar1ntt08'
-                           b'qL1nkrvOWDGKL8ZkGlTqTh7Q"], "nt": "1", "n": ["E2HciXdDVQhrzuEJDnINtG64ciDHb7'
-                           b'kzVQPV_GXKs8Fw"], "bt": "0", "b": [], "c": [], "a": []}}')
+        assert len(notifier.signaler.signals) == 1
 
 
 def test_multisig_rotate_handler(mockHelpingNowUTC):
     ctrl = "EIwLgWhrDj2WI4WCiArWVAYsarrP-B48OM4T6_Wk6BLs"
     with openMutlsig(prefix="test") as ((hby, ghab), (_, _), (_, _)):
 
-        mbx = storing.Mailboxer(name=ghab.name, temp=True)
-        handler = grouping.MultisigRotateHandler(hby=hby, mbx=mbx, controller=ctrl)
+        notifier = notifying.Notifier(hby=hby)
+        handler = grouping.MultisigRotateHandler(hby=hby, notifier=notifier)
 
         # Pass message missing keys:
         handler.msgs.append(dict(name="value"))
@@ -374,17 +366,16 @@ def test_multisig_rotate_handler(mockHelpingNowUTC):
         assert doist.limit == limit
         doist.exit()
 
-        key = f"{ctrl}/multisig".encode("utf-8")
-        msgs = mbx.getTopicMsgs(topic=key)
-        assert len(msgs) == 1
+        assert len(notifier.signaler.signals) == 1
+
 
     with openMutlsig(prefix="test") as ((hby1, ghab1), (_, _), (_, _)):
 
-        exn, atc = grouping.multisigRotateExn(ghab=ghab1, aids=ghab1.aids, isith=2, toad=0, cuts=[],
+        exn, atc = grouping.multisigRotateExn(ghab=ghab1, aids=ghab1.aids, isith='2', toad=0, cuts=[],
                                               adds=[], data=[])
-        mbx = storing.Mailboxer(name=ghab1.name, temp=True)
+        notifier = notifying.Notifier(hby=hby1)
         exc = exchanging.Exchanger(hby=hby1, handlers=[])
-        grouping.loadHandlers(hby=hby1, exc=exc, mbx=mbx, controller=ctrl)
+        grouping.loadHandlers(hby=hby1, exc=exc, notifier=notifier)
 
         ims = bytearray(exn.raw)
         ims.extend(atc)
@@ -404,21 +395,15 @@ def test_multisig_rotate_handler(mockHelpingNowUTC):
         assert doist.limit == limit
         doist.exit()
 
-        key = f"{ctrl}/multisig".encode("utf-8")
-        msgs = mbx.getTopicMsgs(topic=key)
-        assert len(msgs) == 1
-        assert msgs[0] == (b'{"src": "E07_pVCaF6sp9qv-_ufgnqfzySdauT1izcndWMwZzy6c", "r": "/rot", "aids":'
-                           b' ["E07_pVCaF6sp9qv-_ufgnqfzySdauT1izcndWMwZzy6c", "E83mbE6upuYnFlx68GmLYCQd7'
-                           b'cCcwG_AtHM6dW_GT068", "ELftDsGmYwRsd2lXjUqbky0vxABS4-VXeHV7OAIQzCQI"], "toad'
-                           b'": 0, "wits": [], "adds": [], "cuts": [], "isith": null, "data": []}')
+        assert len(notifier.signaler.signals) == 1
 
 
 def test_multisig_interact_handler(mockHelpingNowUTC):
     ctrl = "EIwLgWhrDj2WI4WCiArWVAYsarrP-B48OM4T6_Wk6BLs"
     with openMutlsig(prefix="test") as ((hby, ghab), (_, _), (_, _)):
 
-        mbx = storing.Mailboxer(name=ghab.name, temp=True)
-        handler = grouping.MultisigInteractHandler(hby=hby, mbx=mbx, controller=ctrl)
+        notifier = notifying.Notifier(hby=hby)
+        handler = grouping.MultisigInteractHandler(hby=hby, notifier=notifier)
 
         # Pass message missing keys:
         handler.msgs.append(dict(name="value"))
@@ -441,17 +426,16 @@ def test_multisig_interact_handler(mockHelpingNowUTC):
         assert doist.limit == limit
         doist.exit()
 
-        key = f"{ctrl}/multisig".encode("utf-8")
-        msgs = mbx.getTopicMsgs(topic=key)
-        assert len(msgs) == 1
+        assert len(notifier.signaler.signals) == 1
 
     with openMutlsig(prefix="test") as ((hby1, ghab1), (_, _), (_, _)):
 
         exn, atc = grouping.multisigInteractExn(ghab=ghab1, aids=ghab1.aids,
                                                 data=[{"i": 1, "x": 0, "d": 2}])
-        mbx = storing.Mailboxer(name=ghab1.name, temp=True)
+
+        notifier = notifying.Notifier(hby=hby1)
         exc = exchanging.Exchanger(hby=hby1, handlers=[])
-        grouping.loadHandlers(hby=hby1, exc=exc, mbx=mbx, controller=ctrl)
+        grouping.loadHandlers(hby=hby1, exc=exc, notifier=notifier)
 
         ims = bytearray(exn.raw)
         ims.extend(atc)
@@ -471,10 +455,4 @@ def test_multisig_interact_handler(mockHelpingNowUTC):
         assert doist.limit == limit
         doist.exit()
 
-        key = f"{ctrl}/multisig".encode("utf-8")
-        msgs = mbx.getTopicMsgs(topic=key)
-        assert len(msgs) == 1
-        assert msgs[0] == (b'{"src": "E07_pVCaF6sp9qv-_ufgnqfzySdauT1izcndWMwZzy6c", "r": "/ixn", "aids":'
-                           b' ["E07_pVCaF6sp9qv-_ufgnqfzySdauT1izcndWMwZzy6c", "E83mbE6upuYnFlx68GmLYCQd7'
-                           b'cCcwG_AtHM6dW_GT068", "ELftDsGmYwRsd2lXjUqbky0vxABS4-VXeHV7OAIQzCQI"], "data'
-                           b'": [{"i": 1, "x": 0, "d": 2}]}')
+        assert len(notifier.signaler.signals) == 1

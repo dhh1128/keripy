@@ -14,8 +14,7 @@ from hio.base import doing
 from hio.core import http
 from hio.help import decking
 
-from keri.app import specing, configing, habbing, kiwiing, httping, keeping
-from keri.app.cli.common import oobiing
+from keri.app import specing, configing, habbing, kiwiing, httping, keeping, oobiing
 from keri.vdr import credentialing
 
 DEFAULT_PASSCODE_SIZE = 22
@@ -42,6 +41,7 @@ class Servery(doing.DoDoer):
         self.cafilepath = cafilepath
         self.server = None
         self.serverDoer = None
+        self.currentDoers = None
 
         super(Servery, self).__init__(doers=doers)
 
@@ -65,6 +65,7 @@ class Servery(doing.DoDoer):
 
                 msg = self.msgs.popleft()
                 app = msg["app"]
+                doers = msg["doers"]
 
                 if self.serverDoer:
                     self.remove([self.serverDoer])
@@ -72,6 +73,10 @@ class Servery(doing.DoDoer):
                 if self.server:
                     self.server.close()
 
+                if self.currentDoers:
+                    self.remove(self.currentDoers)
+
+                self.currentDoers = doers
                 yield 1.0
 
                 if self.keypath is not None and self.certpath is not None and self.cafilepath is not None:
@@ -86,6 +91,7 @@ class Servery(doing.DoDoer):
                 self.server = http.Server(port=self.port, app=app, servant=servant)
                 self.serverDoer = http.ServerDoer(server=self.server)
 
+                self.extend(self.currentDoers)
                 self.extend([self.serverDoer])
 
             yield self.tock
@@ -157,8 +163,6 @@ class BootEnd(doing.DoDoer):
         self.configDir = configDir
         self.headDirPath = headDirPath
         self.msgs = decking.Deck()
-        self.hby = None
-        self.rgy = None
         self.bootConfig = dict(
             configFile=configFile,
             configDir=configDir,
@@ -166,39 +170,8 @@ class BootEnd(doing.DoDoer):
         ) | kwa
         self._kiwinits = kwa
 
-        doers = [doing.doify(self.loadDo)]
+        doers = []
         super(BootEnd, self).__init__(doers=doers)
-
-    def loadDo(self, tymth, tock=0.0):
-        """ Load oobis and close Habery when done
-
-        Parameters:
-            tymth (function): injected function wrapper closure returned by .tymen() of
-                Tymist instance. Calling tymth() returns associated Tymist .tyme.
-            tock (float): injected initial tock value
-
-        Returns:  doifiable Doist compatible generator method for loading oobis using
-                  the Oobiery
-        """
-        # enter context
-        self.wind(tymth)
-        self.tock = tock
-        _ = (yield self.tock)
-
-        while not self.hby:
-            yield self.tock
-
-        obl = oobiing.OobiLoader(hby=self.hby, auto=True)
-        self.extend([obl])
-
-        while not obl.done:
-            yield self.tock
-
-        self.hby.close()
-        self.hby = None
-
-        while True:
-            yield 10.0
 
     def on_get_name(self, _, rep, name=None):
         """ GET endpoint for
@@ -302,19 +275,18 @@ class BootEnd(doing.DoDoer):
 
         cf = None
         if self.configFile is not None:
-            print(f"creating with {self.configFile}:{self.configDir}")
             cf = configing.Configer(name=self.configFile,
                                     base=self.base,
                                     headDirPath=self.configDir,
                                     temp=self.temp,
                                     reopen=True,
                                     clear=False)
-            print(cf.path)
 
         hby = habbing.Habery(name=name, base=self.base, temp=self.temp, cf=cf, headDirPath=self.headDirPath, **kwa)
         rgy = credentialing.Regery(hby=hby, name=name, base=self.base)
-        self.hby = hby
-        self.rgy = rgy
+
+        hby.close()
+        rgy.close()
 
         rep.status = falcon.HTTP_200
         body = dict(name=name, msg="Agent and keystore created")
@@ -383,15 +355,13 @@ class BootEnd(doing.DoDoer):
                                     temp=self.temp,
                                     reopen=True,
                                     clear=False)
+        else:
+            cf = None
 
         hby = habbing.Habery(name=name, base=self.base, bran=bran, cf=cf, headDirPath=self.headDirPath)
-        hbyDoer = habbing.HaberyDoer(habery=hby)
         rgy = credentialing.Regery(hby=hby, name=name, base=self.base)
-        rgyDoer = credentialing.RegeryDoer(rgy=rgy)
-        self.extend([hbyDoer, rgyDoer])
 
-        doers = kiwiing.setup(hby=hby, rgy=rgy, servery=self.servery, bootConfig=self.bootConfig, **self._kiwinits)
-        self.extend(doers)
+        kiwiing.setup(hby=hby, rgy=rgy, servery=self.servery, bootConfig=self.bootConfig, **self._kiwinits)
 
         rep.status = falcon.HTTP_200
         body = dict(name=name, msg="Agent unlocked")
@@ -399,7 +369,7 @@ class BootEnd(doing.DoDoer):
         rep.data = json.dumps(body).encode("utf-8")
 
 
-def setup(servery, controller="", configFile=None, configDir=None, insecure=True, tcp=5621, adminHttpPort=5623, path="",
+def setup(servery, controller="", configFile=None, configDir=None, insecure=True, path="",
           headDirPath=None):
     """ Set up an agent in bootloader mode """
     app = falcon.App(middleware=falcon.CORSMiddleware(
@@ -409,20 +379,16 @@ def setup(servery, controller="", configFile=None, configDir=None, insecure=True
     app.req_options.media_handlers.update(media.Handlers())
     app.resp_options.media_handlers.update(media.Handlers())
 
-    servery.msgs.append(dict(app=app))
-
     kwargs = dict(
         controller=controller,
         insecure=insecure,
-        tcp=tcp,
         staticPath=path,
-        adminHttpPort=adminHttpPort,
     )
 
     ends = loadEnds(app=app, configFile=configFile, configDir=configDir, path=path, servery=servery,
                     headDirPath=headDirPath, **kwargs)
 
-    return ends
+    servery.msgs.append(dict(app=app, doers=ends))
 
 
 def loadEnds(app, servery, *, configFile=None, configDir=None, base="", temp=False, headDirPath=None, path, **kwargs):

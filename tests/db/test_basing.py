@@ -12,7 +12,7 @@ from hio.base import doing
 from keri.app import habbing
 from keri.core import coring, eventing
 from keri.core.coring import MtrDex
-from keri.core.coring import Serials, Versify
+from keri.core.coring import Serials, versify
 from keri.core.coring import Signer
 from keri.core.eventing import incept, rotate, interact, Kever
 from keri.db import basing
@@ -111,7 +111,7 @@ def test_baser():
     preb = 'DWzwEHHzq7K0gzQPYGGwTmuupUhPx5_yZ-Wk1x4ejhcc'.encode("utf-8")
     digb = 'EGAPkzNZMtX-QiVgbRbyAIZGoXvbGv9IPb0foWTZvI_4'.encode("utf-8")
     sn = 3
-    vs = Versify(kind=Serials.json, size=20)
+    vs = versify(kind=Serials.json, size=20)
     assert vs == 'KERI10JSON000014_'
 
     ked = dict(vs=vs, pre=preb.decode("utf-8"),
@@ -1691,10 +1691,10 @@ def test_clean_baser():
     name = "nat"
     # with basing.openDB(name="nat") as natDB, keeping.openKS(name="nat") as natKS:
     with habbing.openHby(name=name) as hby:  # default is temp=True
-        natHab = hby.makeHab(name=name, isith=2, icount=3)
+        natHab = hby.makeHab(name=name, isith='2', icount=3)
         # setup Nat's habitat using default salt multisig already incepts
         #natHab = habbing.Habitat(name='nat', ks=natKS, db=natDB,
-                                #isith=2, icount=3, temp=True)
+                                #isith='2', icount=3, temp=True)
         assert natHab.name == 'nat'
         assert natHab.ks == hby.ks # natKS
         assert natHab.db == hby.db # natDB
@@ -1723,7 +1723,7 @@ def test_clean_baser():
         state = natHab.db.states.get(keys=natHab.pre)  # Serder instance
         assert state.sn == 6
         assert state.ked["f"] == '6'
-        assert natHab.db.env.stat()['entries'] == 56
+        assert natHab.db.env.stat()['entries'] == 58
 
         # test reopenDB with reuse  (because temp)
         with basing.reopenDB(db=natHab.db, reuse=True):
@@ -1732,7 +1732,7 @@ def test_clean_baser():
             assert ldig == natHab.kever.serder.saidb
             serder = coring.Serder(raw=bytes(natHab.db.getEvt(dbing.dgKey(natHab.pre,ldig))))
             assert serder.said == natHab.kever.serder.said
-            assert natHab.db.env.stat()['entries'] == 56
+            assert natHab.db.env.stat()['entries'] == 58
 
             # verify name pre kom in db
             data = natHab.db.habs.get(keys=natHab.name)
@@ -1743,7 +1743,7 @@ def test_clean_baser():
                                       keys=[verfer.qb64 for verfer in natHab.kever.verfers],
                                       dig=natHab.kever.serder.said,
                                       sn=natHab.kever.sn+1,
-                                      sith=2,
+                                      sith='2',
                                       nkeys=natHab.kever.nexter.digs)
             fn, dts = natHab.kever.logEvent(serder=badsrdr, first=True)
             natHab.db.states.pin(keys=natHab.pre, val=natHab.kever.state())
@@ -1763,7 +1763,8 @@ def test_clean_baser():
             assert copy.path.endswith("/keri/clean/db/nat")
             assert copy.env.stat()['entries'] >= 18
 
-        assert len(natHab.kevers) == 1
+        # Nat's kever and the signatory kever
+        assert len(natHab.kevers) == 2
         # now clean it
         natHab.db.clean()
 
@@ -1809,7 +1810,7 @@ def test_fetchkeldel():
     preb = 'BWzwEHHzq7K0gzQPYGGwTmuupUhPx5_yZ-Wk1x4ejhcc'.encode("utf-8")
     digb = 'EGAPkzNZMtX-QiVgbRbyAIZGoXvbGv9IPb0foWTZvI_4'.encode("utf-8")
     sn = 3
-    vs = Versify(kind=Serials.json, size=20)
+    vs = versify(kind=Serials.json, size=20)
     assert vs == 'KERI10JSON000014_'
 
     ked = dict(vs=vs, pre=preb.decode("utf-8"),
