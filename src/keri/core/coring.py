@@ -3855,11 +3855,23 @@ class CounterCodex:
     NonTransReceiptCouples: str = '-C'  # Composed Base64 Couple, pre+cig.
     TransReceiptQuadruples: str = '-D'  # Composed Base64 Quadruple, pre+snu+dig+sig.
     FirstSeenReplayCouples: str = '-E'  # Composed Base64 Couple, fnu+dts.
+    # Sam pointed to next line; this is for KERI event message with threshold
+    # we need new code to interpret the attachment. Also nontransreceiptcouple needed
+    # for the other type of AID. We don't have code for parsing endorsements of ACDCs
+    # the way we do for KELs. We're only looking for CESR path proof for issuer of ACDC.
+    # Do these codes provide enough context that stream parser knows they're endorsements,
+    # or do we need to have some special code to make that happen? If not sufficient ctx,
+    # define a new code that copies this one. If you don't want it indexed, use transreceiptquadruple
+    # To choose new value, last counter code we're actually using is V. Notice gap between L and U.
+    # Probably use -M.
     TransIdxSigGroups: str = '-F'  # Composed Base64 Group, pre+snu+dig+ControllerIdxSigs group.
     SealSourceCouples: str = '-G'  # Composed Base64 couple, snu+dig of given delegators or issuers event
     TransLastIdxSigGroups: str = '-H'  # Composed Base64 Group, pre+ControllerIdxSigs group.
     SealSourceTriples: str = '-I'  # Composed Base64 triple, pre+snu+dig of anchoring source event
     SadPathSig: str = '-J'  # Composed Base64 Group path+TransIdxSigGroup of SAID of content
+    # Later comment by Sam: These might work for us. Just use this code; if what's
+    # inside it is an ACDC, then we know it's an endorsement. Attach signatures in SadPathSigGroup.
+    # Just have to modify core/parsing so it handles this.
     SadPathSigGroup: str = '-K'  # Composed Base64 Group, root(path)+SaidPathCouples
     PathedMaterialQuadlets: str = '-L'  # Composed Grouped Pathed Material Quadlet (4 char each)
     MessageDataGroups: str = '-U'  # Composed Message Data Group or Primitive

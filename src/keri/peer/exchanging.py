@@ -61,6 +61,9 @@ class Exchanger(doing.DoDoer):
         self.routes[handler.resource] = handler
         self.doers.append(handler)
 
+    # Possibly modify this function?
+    # Somewhere in here it's going to pull out its own event stream. IT's embedded in
+    # a KERI event stream.
     def processEvent(self, serder, source=None, sigers=None, cigars=None, **kwargs):
         """ Process one serder event with attached indexed signatures representing a Peer to Peer exchange message.
 

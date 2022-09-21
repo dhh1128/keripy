@@ -2591,6 +2591,7 @@ class Kever:
                 )
 
 
+# Analogous to Tevery in VDR. Phil knows Tevery; Sam knows Kevery.
 class Kevery:
     """
     Kevery (Key Event Message Processing Facility) processes an incoming

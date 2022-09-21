@@ -654,6 +654,11 @@ class Parser:
 
         return True  # should never return
 
+    # Modify here. call to processEvent around line 1000
+    # Define use case really well. If we need new codes, do it as generically as possible.
+    # We want to compose. Need code for endorsements. Endorsements come in many types,
+    # so we want to be able to collect all of them, no matter which subtype (multisig,
+    # transferrable, nontrans). We have a path group that might let us leverage that.
     def msgParsator(self, ims=None, framed=True, pipeline=False, kvy=None, tvy=None, exc=None, rvy=None, vry=None):
         """
         Returns generator that upon each iteration extracts and parses msg

@@ -1485,6 +1485,8 @@ class Tever:
         return rtoad, baks
 
 
+# Sam pointed to this, too. Place where we hande KELs for KERI. This is
+# what we modify.
 class Tevery:
     """ Tevery (Transaction Event Message Processing Facility)
 
