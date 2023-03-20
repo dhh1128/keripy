@@ -44,4 +44,5 @@ def ids(tymth, tock=0.0, **opts):
 
     with existing.existingHby(name=name, base=base, bran=bran) as hby:
         for hab in hby.habs.values():
+            print(dir(hab))
             print(f"{hab.name} ({hab.pre})")
