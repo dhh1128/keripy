@@ -937,8 +937,9 @@ def test_gated_ipex_exchange_JSON():
          the metadata variant is the spec's canonical pre-agreement artifact and
          additionally decorrelates across presentations.)
       2. The agree binds the OFFER's SAID (its 'p' field), not the credential
-         SAIDs. Because the offer commits to {cred SAIDs + governance + terms},
-         referencing the offer transitively binds the club to all of it.
+         SAIDs. Because the offer commits to {cred SAIDs + terms} -- and the terms
+         themselves name the governance provision -- referencing the offer
+         transitively binds the club to all of it.
       3. The signed agree verifies against the club's captured key state -- a
          non-repudiable acceptance, signed but (deliberately) not KEL-anchored, so
          the club keeps no public, correlatable log of every patron it admits.
@@ -986,14 +987,16 @@ def test_gated_ipex_exchange_JSON():
     # the graduated-disclosure path-list model. This is a static, one-shot narrowing of
     # the request, NOT full back-and-forth negotiation; the exact placement (attribute
     # vs. query block) and encoding are still being designed (WebOfTrust/keripy
-    # discussion #1512). No creds yet -- schemas, required paths, governance.
+    # discussion #1512). No creds yet -- just schemas and required paths. The apply
+    # carries no governance pointer: per discussion #1595's v2 field table, the
+    # jurisdiction / safe-harbor reference belongs in the ACDC's Rules section, and
+    # the bespoke ACDC's SafeHarbor clause already names GOV_PROVISION_SAID.
     sediSchemaSaid = sedi.sad['s']['$id']
     ageSchemaSaid = age.sad['s']['$id']
     apply = exchange(sender=CLUB, receiver=ALICE, route="/ipex/apply",
                      attributes=dict(m="Prove over-21 and show the state-endorsed photo.",
                                      disclose={sediSchemaSaid: ["/a/i", "/a/photo"],
-                                               ageSchemaSaid:  ["/A/i", "/A/over21"]},
-                                     g=GOV_PROVISION_SAID),
+                                               ageSchemaSaid:  ["/A/i", "/A/over21"]}),
                      stamp=APPLY_STAMP, kind=kind)
     assert apply.sad['t'] == Ilks.exn
     assert apply.sad['r'] == "/ipex/apply"
@@ -1005,11 +1008,12 @@ def test_gated_ipex_exchange_JSON():
     assert reqSedi == ["/a/i", "/a/photo"]              # attributive: issuee + photo
     assert reqAge == ["/A/i", "/A/over21"]              # aggregate: issuee + over-21 flag
     assert "/a/i" in reqSedi and "/A/i" in reqAge       # the joining issuee, from both
-    assert apply.said == "EK0cONSlv5IO4feJcynRSrfR09udKpfQf4Y29QMWRrdH"
+    assert apply.said == "EGCJWNyIrl50oKUjqCYqtjuQzwf5pyCGtbTs9DKQyOBQ"
 
     # 2. offer (Alice -> club): "I'll prove over-21 and show my photo if you accept
-    # these terms." Commits ONLY to Alice's own bespoke-presentation SAID, the CLC
-    # terms, and the governance ref -- no PII -- and binds the apply it answers. It
+    # these terms." Commits ONLY to Alice's own bespoke-presentation SAID and the CLC
+    # terms -- no PII -- and binds the apply it answers. The terms carry the governance
+    # provision SAID in their SafeHarbor clause, so no separate pointer is needed. It
     # deliberately does NOT enumerate the issuer-committed source-credential SAIDs
     # (sedi/age): those are issuer commitments, and attaching them before the club
     # agrees would let the club spurn and walk away with stable holder correlators,
@@ -1018,12 +1022,11 @@ def test_gated_ipex_exchange_JSON():
     offer = exchange(sender=ALICE, receiver=CLUB, route="/ipex/offer",
                      prior=apply.said,
                      attributes=dict(acdc=bespoke.said,
-                                     governance=GOV_PROVISION_SAID,
                                      terms=_rules_in_bespoke()),
                      stamp=OFFER_STAMP, kind=kind)
     assert offer.sad['p'] == apply.said                 # answers the apply
     assert bespoke.said.encode() in offer.raw           # commits to Alice's own presentation
-    assert offer.said == "EIUqoqpXiU52iIp5q9M2RH_g0N0dbJnLFW8MprL3QOQN"
+    assert offer.said == "EIvCy-IuFMDxsfgljLwJ_reFlNquxFZISO2azbB8BRAv"
     # (property 1) the offer leaks no PII: not Alice's name, photo, or birthdate.
     assert b"Alice Anders" not in offer.raw
     assert b"<state-endorsed-photo-bytes>" not in offer.raw
@@ -1038,7 +1041,7 @@ def test_gated_ipex_exchange_JSON():
     agree = exchange(sender=CLUB, receiver=ALICE, route="/ipex/agree",
                      prior=offer.said, stamp=AGREE_STAMP, kind=kind)
     assert agree.sad['p'] == offer.said                 # binds the offer SAID
-    assert agree.said == "EI30cUq5JGGSd-3cBoXx1nCtE6CBXXRgKPkZodJm-8da"
+    assert agree.said == "EE7pbI1liwhWNUwdXVKp5vL8YgaeQlPcr-h_CB9edvPQ"
     # The club signs the agree, and we assemble the signed wire message the blessed
     # way: messagize() frames the signature as a CESR attachment group (genus code
     # and all). New keripy code should never hand-roll attachment framing -- pass
@@ -1093,7 +1096,7 @@ def test_gated_ipex_exchange_JSON():
     grant = disclose(agree, clubSig, capturedKeyState)
     assert grant is not None
     assert grant.sad['p'] == agree.said                 # grant follows the agree
-    assert grant.said == "EEIdc4wcI-9zB0eSZE4meZLWXfM8WuXZHMDhyBfIJJaD"
+    assert grant.said == "ENtvVRuc7Yj32fZle43hK4omY6k3UGKX1EuGCpj7KPRL"
     # (property 4) PII crosses the wire only now, in the grant: the photo and the
     # over-21 flag.
     assert b"<state-endorsed-photo-bytes>" in grant.raw
@@ -1125,7 +1128,7 @@ def test_gated_ipex_exchange_JSON():
     admit = exchange(sender=CLUB, receiver=ALICE, route="/ipex/admit",
                      prior=grant.said, stamp=ADMIT_STAMP, kind=kind)
     assert admit.sad['p'] == grant.said
-    assert admit.said == "EDmW_7vE6Ivdwr3ldV-W9uLPOcJp97Sz9bqD5eNaKpks"
+    assert admit.said == "EKcGraxNIj2oi-AZwzuvqSt_y1-0sPFx3K8WJ3DuNULa"
 
 
 def test_accountability_and_terms_follow_data_JSON():

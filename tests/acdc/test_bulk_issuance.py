@@ -945,9 +945,12 @@ def test_partition_across_verifiers_JSON():
 # ===========================================================================
 # Phase 5: disclosure gating (v_k only post-agree) + set revocation.
 # ===========================================================================
-# A published SEDI over-21 governance framework, referenced by SAID (public, shared by
-# the whole population -> non-correlating). PLACEHOLDER digest of a description string.
-GOVERNANCE_SAID = Diger(ser=b'SEDI over-21 governance framework v1').qb64
+# The IPEX messages below carry NO governance pointer. Discussion #1595's v2 field table
+# retires both spellings the examples used (`g` on the apply, `governance` on the offer)
+# with "Do not add; jurisdiction / safe-harbor in ACDC rules". This example's per-context
+# presentation carries no Rules section at all, so nothing here names a governance
+# framework any more; a production SEDI presentation would put the framework SAID in its
+# `r` section, the way the CLC example's SafeHarbor clause does.
 APPLY_STAMP = "2026-07-22T21:15:00.000000+00:00"
 OFFER_STAMP = "2026-07-22T21:16:00.000000+00:00"
 AGREE_STAMP = "2026-07-22T21:17:00.000000+00:00"
@@ -955,19 +958,19 @@ GRANT_STAMP = "2026-07-22T21:18:00.000000+00:00"
 REVOKE_STAMP = "2026-08-01T09:00:00.000000+00:00"
 
 
-def _offer(kind, *, sender, receiver, prior, presentationSaid, governance):
+def _offer(kind, *, sender, receiver, prior, presentationSaid):
     """Leak-proof pre-agree offer constructor (Sam, issue #1532: make the leak
     UNREPRESENTABLE at the API rather than merely asserted-absent).
 
     Its signature has NO parameter for source-credential SAIDs, the registry, or the
     blinding factor v_k, so the pre-agree offer STRUCTURALLY cannot carry a stable holder
     correlator. It commits only the fresh, per-context presentation SAID (safe because it
-    is built with a per-presentation salt, so it is an ephemeral, not a stable correlator)
-    and a public governance ref. This is the 'correlation-budget doctrine' as
-    policy-by-construction -- an EGF/implementation-guide requirement, not a schema change.
+    is built with a per-presentation salt, so it is an ephemeral, not a stable
+    correlator). This is the 'correlation-budget doctrine' as policy-by-construction --
+    an EGF/implementation-guide requirement, not a schema change.
     """
     return exchange(sender=sender, receiver=receiver, route="/ipex/offer", prior=prior,
-                    attributes=dict(acdc=presentationSaid, governance=governance),
+                    attributes=dict(acdc=presentationSaid),
                     stamp=OFFER_STAMP, kind=kind)
 
 
@@ -975,7 +978,7 @@ def test_disclosure_gating_and_revocation_JSON():
     """Phase 5: the blinding factor v_k rides only in the grant; a revoked set fails.
 
     Two properties. First, disclosure gating: the pre-agree /ipex/offer commits only the
-    fresh presentation SAID + public governance -- built with a constructor that cannot
+    fresh presentation SAID -- built with a constructor that cannot
     carry the source SAIDs, the registry, or the blinding factor v_k (Sam #1532's
     make-it-unrepresentable guidance). v_k appears ONLY in the grant, after a valid signed
     agree, so a verifier who spurns walks away with no stable correlator and no membership
@@ -995,20 +998,19 @@ def test_disclosure_gating_and_revocation_JSON():
     k = _copy_index_for(verifier)
     pres = _presentation(kind, verifier, idCopies, ageCopies, presNonces)
 
-    # 1. apply (verifier -> holder): the challenge (schema/fields + governance).
+    # 1. apply (verifier -> holder): the challenge (which schema, which fields).
     apply = exchange(sender=verifier, receiver=ALICES[k], route="/ipex/apply",
                      attributes=dict(m="Prove over-21.",
                                      disclose={ageCopies[k].sad['s']['$id']:
-                                               ["/A/i", "/A/over21"]},
-                                     g=GOVERNANCE_SAID),
+                                               ["/A/i", "/A/over21"]}),
                      stamp=APPLY_STAMP, kind=kind)
     assert apply.sad['r'] == "/ipex/apply"
 
     # 2. offer (holder -> verifier): via the leak-proof constructor. NO source SAIDs, NO v_k.
     offer = _offer(kind, sender=ALICES[k], receiver=verifier, prior=apply.said,
-                   presentationSaid=pres.said, governance=GOVERNANCE_SAID)
+                   presentationSaid=pres.said)
     assert offer.sad['p'] == apply.said
-    assert pres.said.encode() in offer.raw                      # fresh per-context SAID: safe
+    assert pres.said.encode() in offer.raw                    # fresh per-context SAID: safe
     assert idCopies[k].said.encode() not in offer.raw           # source SAID withheld
     assert ageCopies[k].said.encode() not in offer.raw          # source SAID withheld
     assert idReg.said.encode() not in offer.raw                 # registry withheld
