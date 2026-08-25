@@ -1,75 +1,69 @@
 # -*- coding: utf-8 -*-
 """
-tests.acdc.test_guardianship_presentation module
+tests.acdc.test_ward_authz_presentation module
 
-Worked, working example of a REPRESENTED PRESENTATION -- a digital guardian presenting a
-fact ABOUT a ward to a verifier, under Utah's State-Endorsed Digital Identity law (SEDI,
-Utah Code 63A-20). Sibling to tests/acdc/test_cp_disclosure.py and test_examples.py, it
-adds the one thing neither shows: a presentation whose HOLDER IS NOT THE SUBJECT.
+Worked, working example of a DELEGATED AUTHORIZATION the ward presents herself: a guardian
+issues his ward an ACDC carrying an attenuated slice of his own authority, and the ward --
+not the guardian -- shows it to the service that gates the act. It is the shape
+@SmithSamuelM drew in #1550, "Ward with Single Guardian Issues Authorization: Ward to
+Access Social".
 
 TWO REGIMES, TWO MODULES, split where Utah Code 63A-20-302(3)(a) splits them: a ward
 "unable to apply ... due to the individual's youth or incapacitation" has a guardian who
-acts on her behalf. That ward is THIS module's -- seven-year-old Mia, whose father custodies
-her keys -- so the invariant is holder != subject, and collapsing the two is the
-impersonation failure the prior art warns against (Sovrin "Guardianship in SSI V2"; Aries
-RFC 0103). A ward who CAN act is the sibling's -- 17-year-old Cara, in
-tests/acdc/test_ward_authz_presentation.py (PR #1577), bounded by an authorization she
-presents herself. Bob Carver is the custodial parent in both, and the four bases the schema
-below pins are the four in 63A-20-201(3)(b).
+acts on her behalf. That ward is the sibling's -- seven-year-old Mia, in
+tests/acdc/test_guardianship_presentation.py (PR #1530), whose guardian custodies her keys,
+where the invariant is holder != subject. A ward who CAN act is this module's --
+17-year-old Cara, bounded by the authorization she carries, where the invariant is
+attenuation. Bob Carver is the custodial parent in both.
 
-Scenario, under Utah's App Store Accountability Act (13-76). Mia holds two SEDI credentials
-under her own AID -- an attributive identity credential, and an aggregative age credential
-(boolean flags for 13, 16, 18, 21, 55, 65) chained to it by an E1E identity edge -- and can
-present neither. Before an app store may let a minor download an app it must obtain
-verifiable parental consent (13-76-201(1)(b)) and verify her AGE CATEGORY, the lowest being
-"child", under 13 (13-76-101(2)(a)), which the developer uses to set safety defaults at
-their most restrictive (13-76-202(3)(a)). Those two facts are all it gets: not Mia's
-birthdate, not a standing correlator. Bob presents them, a relying party being required to
-accept a presentation by a digital guardian (63A-20-601(1)(e); also 501(1)(e), 401(1)(h)).
+Scenario, under Utah's Minor Protection in Social Media Act. Being a minor does not gate
+Cara's account; it forces maximum-privacy defaults on it (13-71-202). Two duties then turn
+on her parent: she cannot change those defaults without verifiable parental consent
+(13-71-204(1)), and the supervisory tools she activates are configured by an individual she
+selects, who sets daily time limits (13-71-203). Both are authority Bob holds and Cara
+exercises, so he issues her an ACDC naming the routes, capabilities and daily window she may
+use, and SHE presents it. NOT claimed: that the ACDC is statutory consent. 13-71-101(18)
+defines that as a notice ritual running toward the parent, and this runs the other way, so
+it models the parental AUTHORITY those duties rely on rather than the ceremony.
 
-NOT CLAIMED: the statutory consent entire. 13-76-101(21) wants an affirmative choice by
-someone the store "has verified is an adult", after a parental consent disclosure. The chain
-proves more than adulthood -- a recognized guardian over THIS ward -- and the presentation is
-the affirmative grant, but the disclosure is only gestured at, the apply carrying a
-governance SAID where 13-76-101(18) wants the app's age rating and data practices.
+Four credentials, registry-bound, each validated against a purpose-authored JSON Schema:
 
-Three edges, three operators, each PINNED by a schema const so a mislabel fails wire
+  1. Guardian as Citizen  -- State -> Bob.  His own SEDI identity credential.
+  2. Guardian as Guardian -- State -> Bob.  The guardianship, carrying the WARD's AID in its
+     attribute block (see the divergence below). Edge to (1).
+  3. Ward as Citizen Ward -- State -> Cara. Her identity credential, DECLARING ITSELF
+     ENCUMBERED by its edge to (2).
+  4. Ward AuthZ Social    -- Bob -> Cara, in BOB's OWN registry. Edges to (2) and (3).
+
+Four edges, four operators, each PINNED by a schema const so a mislabel fails wire
 validation. Each is argued where it is built; in brief:
 
-  presentation -> guardian cred  I2I   issuer(near) == issuee(far): Bob holds the authority.
-  presentation -> ward's creds   NI2I  Bob is NOT Mia; I2I here would be impersonation.
-  ward age -> ward identity      E1E   same subject, different issuers -- an identity
-                                       relation, not a delegation (#1515, operator in #1527).
+  (4)->(2) authority  I2I   near issuer Bob == far issuee Bob: Bob held what he delegates.
+  (4)->(3) subject    E1E   same subject, different issuers; I2I would demand Bob == Cara.
+  (2)->(1) citizen    E1E   same subject again; I2I would demand State == Bob.
+  (3)->(2) guardian   NI2I  different subjects, so only the untargeted operator applies.
 
-WHERE THE INVARIANT IS ACTUALLY ENFORCED, the panel review's dominant finding: not by NI2I,
-which is relationally inert and which verifyChain never uses to bind presenter against ward.
-The pins make only the impersonation SHAPE unrepresentable; the guarantee is the binding
-logic at _verify_representation, which an implementer must port rather than copy. E1E
-carries the sibling's caveat too: not yet in the spec's closed operator set, so a verifier
-coercing an unknown operator either rejects this edge or accepts it unchecked (#1515).
+The two E1E edges are why this graph is more than a diagram: E1E (PR #1527, disc #1515) is
+not yet in the spec's closed operator set, so a verifier that coerces an unknown operator to
+I2I rejects both outright rather than merely under-specifying them.
 
-WHAT THE DISCLOSURE HIDES. The store learns "an authorized guardian consents, and this user
-is under 13" and nothing else -- not the birthdate, the exact age or the name -- since the
-aggregate hides the LABELS and block SAIDs of every withheld threshold. What it cannot hide
-is the monotone entailment between cumulative thresholds, at _age_ael. IDENTIFIER-level
-unlinkability is NOT achieved and is not claimed: the ward's stable AID and the source SAIDs
-cross, and the GUARDIAN's AID correlates the same way. That residual is deployment work,
-worked out by the test_bulk_issuance_*.py siblings on branch
-feat-indep-registry-bulk-issuance. Phase 4 adds what no date can give: a BLINDABLE registry,
-so termination is checked at presentation.
+RECORDED DIVERGENCE: where the ward AID lives. Sam's diagram puts it in (2)'s ATTRIBUTE
+block, the sibling names the ward by EDGE, and both preserve holder != subject -- so it is a
+DISCLOSURE choice, and the edge is better on Sam's own #1515 argument that an edge "can also
+be blinded" until the disclosee accepts terms, where a whole-disclosed attribute cannot be
+withheld at all. This module follows SAM because it is his diagram; Phase 4 shows the cost,
+the guardianship's expiry being Cara's 18th birthday.
 
-TWO DELIBERATE OMISSIONS. No 'powers' edge to a companion delegated-authority credential --
-Utah does not want guardianship to depend on one, so the edge section is CLOSED at subject +
-authorization, at the cost that 'scope' cannot say which platforms or hours; a guardianship
-needing that carries it inline, which is the sibling's subject. And no contractually-
-protected disclosure, which is test_cp_disclosure.py's; accountability rests instead on the
-governance framework the Rules section names by SAID, itself a PLACEHOLDER digest.
-
-Altitude, as in the siblings: the credential graph, the edge bindings and the registry state
-at the data-structure level on real v2 primitives (acdcmap/acdcagg, Aggor, Compactor,
-Blinder, exchange), with no Habery/keystore and no verifyChain, which needs a live
-Reger/Tevery. Every ACDC validates against a purpose-authored schema; AIDs derive from a
-fixed salt.
+Three things stated once and detailed at the code. The AuthZ payload is ILLUSTRATIVE and its
+syntax UNSETTLED ("The syntax TBD", #1550), modeled on EVAC's 'rc' map and insulated behind
+_authz_capabilities; the constraint the build measured -- a route cannot be a map LABEL in
+native CESR -- is at AUTHZ_BLOCK_SCHEMA. Over-reach is relational rather than structural, so
+an AuthZ credential exceeding (2)'s 'powers' is schema-valid and only the binding refuses it
+(Phase 3); 'powers' here is the DELEGABLE capability set, and it is a different field from
+'scope', the coarse statutory enum that this module and the sibling both carry under that
+one name. And the altitude is the siblings': the credential graph, edge bindings and
+registry binding at the data-structure level on real v2 primitives, with no Habery/keystore
+and no verifyChain, which needs a live Reger/Tevery.
 """
 
 import json
@@ -79,21 +73,21 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
 from keri import Kinds, Ilks
-from keri.core import (Salter, Noncer, Aggor, Compactor, Mapper, Diger, Verfer,
+from keri.core import (Salter, Noncer, Compactor, Mapper, Diger, Verfer,
                        exchange, messagize)
 from keri.core.coring import MtrDex
 from keri.core.eventing import incept
-from keri.acdc import regcept, blindate, acdcmap, acdcagg
-from keri.core.structing import Blinder
+from keri.acdc import regcept, acdcmap
+from keri.help.helping import ATREX
 
 
 # --- Reproducible example actors (see module docstring). ---
-# Five actors, each a self-addressing ('E') transferable AID: its prefix is the SAID
-# of an inception event committing to the actor's current signing key and a digest of
-# its pre-rotated next key. Ten signers from one fixed salt: _SIGNERS[0..4] are the
-# five actors' current signing keys (DGO, endorser, Bob, Mia, service) and
-# _SIGNERS[5..9] are their matching pre-rotated next keys.
-_SIGNERS = Salter(raw=b'guardworkexamsal').signers(count=10, transferable=True,
+# Four actors, each a self-addressing ('E') transferable AID: its prefix is the SAID of
+# an inception event committing to the actor's current signing key and a digest of its
+# pre-rotated next key. Eight signers from one fixed salt: _SIGNERS[0..3] are the four
+# actors' current signing keys (State, Bob, Cara, the social service) and _SIGNERS[4..7]
+# are their matching pre-rotated next keys.
+_SIGNERS = Salter(raw=b'wardauthzexamsal').signers(count=8, transferable=True,
                                                    temp=True)
 
 
@@ -104,17 +98,15 @@ def _actor_aid(cur, nxt):
                   code=MtrDex.Blake3_256).pre
 
 
-# DGO = Utah's digital-government office (the State endorser/issuer); ENDORSER issues
-# the derived age credential; BOB is the custodial parent (guardian); MIA is his
-# seven-year-old ward, whose keys he custodies; STORE is the app store provider (the
-# relying party). Bob's other child, the 17-year-old who presents for herself, is the
-# sibling module's cast.
-DGO, ENDORSER, BOB, MIA, STORE = (
-    _actor_aid(_SIGNERS[i], _SIGNERS[i + 5]) for i in range(5))
+# STATE = the Utah state agency that endorses citizens and recognizes guardianships;
+# BOB = the custodial parent (guardian); CARA = the 17-year-old ward, who holds her own
+# keys; SOCIAL = the social media company, which under 13-71 must identify her as a minor
+# and hold her account to maximum-privacy defaults she cannot change on her own.
+STATE, BOB, CARA, SOCIAL = (_actor_aid(_SIGNERS[i], _SIGNERS[i + 4]) for i in range(4))
 
 # Per-example blinding nonces, derived (not pasted) from a distinct raw prefix so this
 # file shares no nonce values with the sibling examples.
-RAWS = [b'guardworkexamra' + b'%0x' % (i,) for i in range(32)]
+RAWS = [b'wardauthzexamra' + b'%0x' % (i,) for i in range(32)]
 NONCES = [Noncer(raw=raw).qb64 for raw in RAWS]
 
 
@@ -157,8 +149,7 @@ def assert_acdc_schema_valid(acdc, schema=None):
 def _disclosable_block(attr, attr_schema, desc):
     """One partially-disclosable block schema: oneOf(block SAID, block detail).
 
-    Whether the block is a nested attribute block (attributive ACDC) or an element of
-    an aggregate array, it has one shape -- oneOf(block SAID, {d, u, <attr>}). A
+    A nested attribute block has one shape -- oneOf(block SAID, {d, u, <attr>}). A
     withheld block travels as its bare SAID and leaks nothing (its own blinding nonce
     'u' means a low-entropy value cannot be brute-forced from the SAID).
     """
@@ -176,7 +167,7 @@ def _disclosable_block(attr, attr_schema, desc):
     }
 
 
-# acm/acg are fixed-field formats: they always carry (possibly empty) e and r sections
+# acm is a fixed-field format: it always carries (possibly empty) e and r sections
 # even when unused, so the schema must admit them.
 _EMPTY_OR_SECTION = {"oneOf": [{"type": "string"}, {"type": "object"}]}
 
@@ -184,9 +175,11 @@ _EMPTY_OR_SECTION = {"oneOf": [{"type": "string"}, {"type": "object"}]}
 def _edge_schema(op_const, desc):
     """One edge schema whose operator is PINNED to a single value (const op_const).
 
-    Pinning the operator in the schema makes the relationship schema-enforced: an
-    I2I authority edge, an NI2I ward-data edge, or an E1E identity edge cannot be
-    silently swapped for another operator without failing validation.
+    Pinning the operator in the schema is what makes each of this example's four
+    relationships schema-enforced rather than conventional: the I2I authority edge, the
+    two E1E identity edges and the NI2I encumbrance edge cannot be silently swapped for
+    one another without failing wire validation. It also means E1E is never INFERRED --
+    an unlabeled identity edge would default to I2I, which is the wrong answer here.
     """
     return {
         "oneOf": [
@@ -201,213 +194,149 @@ def _edge_schema(op_const, desc):
                                   "const": op_const}}}]}
 
 
-def _edge_schema_enum(desc):
-    """An edge schema whose operator is one of I2I / NI2I (the guardian credential's
-    subject/authorization edges: I2I when a principal self-designates, else NI2I)."""
-    return {
-        "oneOf": [
-            {"type": "string"},
-            {"type": "object", "required": ["d", "n", "o"],
-             "properties": {"d": {"type": "string"}, "u": {"type": "string"},
-                            "n": {"description": f"{desc}: far node SAID",
-                                  "type": "string"},
-                            "s": {"description": "Far node schema SAID",
-                                  "type": "string"},
-                            "o": {"description": f"Edge operator ({desc})",
-                                  "enum": ["I2I", "NI2I"]}}}]}
-
-
-# --- sedi-id: the ward's ATTRIBUTIVE ('acm') identity credential. ---
+# --- The SEDI citizen credential, shared shape for (1) Bob's and (3) Cara's. ---
 # Fixed, well-labeled identity fields, so an attribute section with individually
-# partially-disclosable nested blocks is the right model (Sam's first-principles
-# criterion, PR #1505 conversation): labels give clean paths and clean partial
-# disclosure, and the aggregate (unlabeled-array) form buys nothing for a fixed
-# labeled set. The issuee 'i' is the WARD (Mia).
-SEDI_SCHEMA_MAD = {
+# partially-disclosable nested blocks is the right model: labels give clean paths and
+# clean partial disclosure. The issuee 'i' is the citizen. Cara's differs from Bob's in
+# exactly one way -- it carries the encumbrance edge -- so the schema is authored twice
+# rather than shared, since the edge section is what a verifier reads to tell an
+# unencumbered citizen credential from a ward's.
+def _citizen_properties():
+    """The identity attribute properties both citizen credentials carry."""
+    return {
+        "d": {"description": "Section SAID", "type": "string"},
+        "u": {"description": "Section UUID", "type": "string"},
+        "i": {"description": "Issuee (the citizen) AID", "type": "string"},
+        "name": _disclosable_block("name",
+            {"description": "Full name", "type": "string"}, "Name"),
+        "dob": _disclosable_block("dob",
+            {"description": "Date of birth", "type": "string", "format": "date"},
+            "DOB"),
+        "residence": _disclosable_block("residence",
+            {"description": "Residence", "type": "string"}, "Residence"),
+    }
+
+
+# --- (1) Guardian as Citizen: the guardian's own SEDI identity credential. ---
+# State -> Bob. Registry-bound. No edges: an adult citizen credential stands alone,
+# which is precisely the contrast the ward's credential draws.
+GUARDIAN_CITIZEN_SCHEMA_MAD = {
     "$id": "",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "SEDI Identity Credential",
-    "description": "State-endorsed SEDI digital-identity credential; attributes carried "
-                   "as individually partially-disclosable nested blocks.",
-    "credentialType": "SEDI_Identity",
+    "title": "SEDI Citizen Credential",
+    "description": "State-endorsed SEDI identity credential for an adult citizen; "
+                   "attributes carried as individually partially-disclosable nested "
+                   "blocks. Stands alone: no encumbrance edge.",
+    "credentialType": "SEDI_Citizen",
     "version": "1.0.0",
     "type": "object",
-    "required": ["v", "d", "i", "rd", "s", "a"],
+    "required": ["v", "d", "i", "rd", "s", "a", "r"],
     "properties": {
         "v": {"description": "ACDC version string", "type": "string"},
         "t": {"description": "Message type", "const": "acm"},
         "d": {"description": "Message SAID", "type": "string"},
         "u": {"description": "Message UUID", "type": "string"},
-        "i": {"description": "Issuer (DGO/State) AID", "type": "string"},
+        "i": {"description": "Issuer (the State agency) AID", "type": "string"},
         "rd": {"description": "Registry SAID", "type": "string"},
         "s": {"description": "Schema Section",
               "oneOf": [{"type": "string"}, {"type": "object"}]},
-        "a": {
-            "description": "Attribute section with individually-disclosable blocks",
-            "oneOf": [
-                {"description": "Attribute Section SAID", "type": "string"},
-                {"description": "Attribute detail",
-                 "type": "object",
-                 "required": ["d", "u", "i", "photo", "dob", "residence", "name"],
-                 "properties": {
-                     "d": {"description": "Section SAID", "type": "string"},
-                     "u": {"description": "Section UUID", "type": "string"},
-                     "i": {"description": "Issuee (ward) AID", "type": "string"},
-                     "photo": _disclosable_block("photo",
-                         {"description": "State-endorsed photo", "type": "string"},
-                         "Photo"),
-                     "dob": _disclosable_block("dob",
-                         {"description": "Date of birth", "type": "string",
-                          "format": "date"}, "DOB"),
-                     "residence": _disclosable_block("residence",
-                         {"description": "Residence", "type": "string"}, "Residence"),
-                     "name": _disclosable_block("name",
-                         {"description": "Full name", "type": "string"}, "Name"),
-                 },
-                 "additionalProperties": False},
-            ],
-        },
-        "e": _EMPTY_OR_SECTION,
-        "r": _EMPTY_OR_SECTION,
-    },
-    "additionalProperties": False,
-}
-
-# --- sedi-age: the ward's AGGREGATIVE ('acg') age credential. ---
-# THIS is where the aggregate (unlabeled-position) form earns its keep (Sam's
-# criterion, PR #1505): a homogeneous boolean vector where hiding WHICH thresholds
-# are asserted is the whole point -- a poor man's sparse Merkle tree, as mdoc models
-# age proofs. Element 0 is the AGID, index-1 carries the issuee 'i' (the ward), and
-# the rest are one boolean block per threshold. It REQUIRES an E1E identity edge back
-# to the ward's sedi-id (same subject, issuer != issuee), so the identity relation is
-# schema-enforced rather than incidental.
-AGE_THRESHOLDS = (13, 16, 18, 21, 55, 65)
-AGE_SCHEMA_MAD = {
-    "$id": "",
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "Age Threshold Credential",
-    "description": "Derived age credential: a selectively disclosable aggregate of "
-                   "boolean flags, one per age threshold, chained to the core "
-                   "identity credential by an E1E identity edge.",
-    "credentialType": "AgeThresholds",
-    "version": "1.0.0",
-    "type": "object",
-    "required": ["v", "d", "i", "rd", "s", "A", "e"],
-    "properties": {
-        "v": {"description": "ACDC version string", "type": "string"},
-        "t": {"description": "Message type", "const": "acg"},
-        "d": {"description": "Message SAID", "type": "string"},
-        "u": {"description": "Message UUID", "type": "string"},
-        "i": {"description": "Issuer (endorser) AID", "type": "string"},
-        "rd": {"description": "Registry SAID", "type": "string"},
-        "s": {"description": "Schema Section",
-              "oneOf": [{"type": "string"}, {"type": "object"}]},
-        "A": {
-            "description": "Selectively disclosable age-threshold aggregate section",
-            "oneOf": [
-                {"description": "Aggregate Section AGID", "type": "string"},
-                {"description": "Selectively disclosable flag details",
-                 "type": "array", "uniqueItems": True,
-                 "items": {"anyOf": [
-                     _disclosable_block("i", {"description": "Issuee (ward) AID",
-                                              "type": "string"}, "Issuee"),
-                     *[_disclosable_block(f"over{n}",
-                         {"description": f"Over-{n} flag", "type": "boolean"},
-                         f"Over{n}") for n in AGE_THRESHOLDS],
-                 ]}},
-            ],
-        },
-        "e": {
-            "description": "Edge section: one E1E identity edge to the sedi-id core cred",
-            "oneOf": [
-                {"type": "string"},
-                {"type": "object", "required": ["d", "identity"],
-                 "properties": {"d": {"type": "string"}, "u": {"type": "string"},
-                                "identity": _edge_schema(
-                                    "E1E", "identity relation, issuer unconstrained")},
-                 "additionalProperties": False}],
-        },
-        "r": _EMPTY_OR_SECTION,
-    },
-    "additionalProperties": False,
-}
-
-# --- authorization instrument: a minimal birth-certificate credential. ---
-# For a custodial-parent guardianship the authority arises from the inherent parental
-# right, EVIDENCED by the birth certificate (authorityType: inherentParental, no
-# court). The guardian credential's 'authorization' edge points here, grounding the
-# authority in a verifiable instrument -- the accountability chain a document-centric
-# mDL/ARF flow has no place for. Disclosed whole (a minimal instrument reference).
-BIRTHCERT_SCHEMA_MAD = {
-    "$id": "",
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "Birth Certificate Credential",
-    "description": "Vital-records attestation of a parent-child relationship, the "
-                   "authorizing instrument for a custodial-parent guardianship.",
-    "credentialType": "BirthCertificate",
-    "version": "1.0.0",
-    "type": "object",
-    "required": ["v", "d", "i", "rd", "s", "a"],
-    "properties": {
-        "v": {"description": "ACDC version string", "type": "string"},
-        "t": {"description": "Message type", "const": "acm"},
-        "d": {"description": "Message SAID", "type": "string"},
-        "u": {"description": "Message UUID", "type": "string"},
-        "i": {"description": "Issuer (DGO vital records) AID", "type": "string"},
-        "rd": {"description": "Registry SAID", "type": "string"},
-        "s": {"description": "Schema Section",
-              "oneOf": [{"type": "string"}, {"type": "object"}]},
-        "a": {"description": "Attribute Section",
+        "a": {"description": "Attribute section with individually-disclosable blocks",
               "oneOf": [
-                  {"type": "string"},
-                  {"type": "object", "required": ["d", "u", "i", "child", "parent"],
-                   "properties": {"d": {"type": "string"}, "u": {"type": "string"},
-                                  "i": {"description": "Issuee (the child) AID",
-                                        "type": "string"},
-                                  "child": {"description": "Child AID", "type": "string"},
-                                  "parent": {"description": "Parent AID",
-                                             "type": "string"}},
+                  {"description": "Attribute Section SAID", "type": "string"},
+                  {"description": "Attribute detail", "type": "object",
+                   "required": ["d", "u", "i", "name", "dob", "residence"],
+                   "properties": _citizen_properties(),
                    "additionalProperties": False}]},
         "e": _EMPTY_OR_SECTION,
-        "r": _EMPTY_OR_SECTION,
+        "r": {"description": "SAID of the SEDI citizen governance framework",
+              "type": "string"},
     },
     "additionalProperties": False,
 }
 
-# A published SEDI guardianship governance framework, referenced BY SAID (not authored
-# here) from the guardian credential's and the presentation's Rules section. The
-# fiduciary/holder!=subject/scope-enforcement/dynamic-revocation clauses live in this
-# framework. PLACEHOLDER SAID (a bare digest of a description string), standing in for
-# the SAID a real deployment computes over the governance document.
-GUARDIAN_RULES_SAID = Diger(
-    ser=b'SEDI guardianship governance framework v1').qb64
+# --- (3) Ward as Citizen Ward: the ward's own SEDI identity credential. ---
+# State -> Cara. Identical attribute shape to (1), plus ONE required edge back to the
+# guardianship credential (2). That edge is the point: the ward's own credential
+# DECLARES that it is encumbered, so a verifier who reads only Cara's credential learns
+# that a guardianship stands over her identity. Its operator is NI2I, and it must be:
+# the near issuee is Cara and the far issuee is Bob, which are different subjects, so
+# neither the delegative I2I nor the identity E1E applies.
+WARD_CITIZEN_SCHEMA_MAD = {
+    "$id": "",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "SEDI Ward Citizen Credential",
+    "description": "State-endorsed SEDI identity credential for a citizen under "
+                   "guardianship. Same attribute shape as the adult citizen credential, "
+                   "plus a REQUIRED NI2I edge to the guardianship credential -- the "
+                   "ward's own credential declares that it is encumbered.",
+    "credentialType": "SEDI_CitizenWard",
+    "version": "1.0.0",
+    "type": "object",
+    "required": ["v", "d", "i", "rd", "s", "a", "e", "r"],
+    "properties": {
+        "v": {"description": "ACDC version string", "type": "string"},
+        "t": {"description": "Message type", "const": "acm"},
+        "d": {"description": "Message SAID", "type": "string"},
+        "u": {"description": "Message UUID", "type": "string"},
+        "i": {"description": "Issuer (the State agency) AID", "type": "string"},
+        "rd": {"description": "Registry SAID", "type": "string"},
+        "s": {"description": "Schema Section",
+              "oneOf": [{"type": "string"}, {"type": "object"}]},
+        "a": {"description": "Attribute section with individually-disclosable blocks",
+              "oneOf": [
+                  {"description": "Attribute Section SAID", "type": "string"},
+                  {"description": "Attribute detail", "type": "object",
+                   "required": ["d", "u", "i", "name", "dob", "residence"],
+                   "properties": _citizen_properties(),
+                   "additionalProperties": False}]},
+        "e": {"description": "Edge section: the encumbrance edge to the guardianship",
+              "oneOf": [
+                  {"type": "string"},
+                  {"type": "object", "required": ["d", "guardian"],
+                   "properties": {"d": {"type": "string"}, "u": {"type": "string"},
+                                  "guardian": _edge_schema(
+                                      "NI2I", "encumbrance: a guardianship over this "
+                                              "citizen, held by someone else")},
+                   "additionalProperties": False}]},
+        "r": {"description": "SAID of the SEDI ward governance framework",
+              "type": "string"},
+    },
+    "additionalProperties": False,
+}
 
-# The coarse statutory scope enum, the same vocabulary the sibling module carries under
-# the same field name. Utah prefers LIMITED guardianship, so a verifier checks the
-# specific act against scope rather than taking a guardianship credential at face value.
-# ('powers' is deliberately NOT this field: in the sibling it is the finer-grained
-# DELEGABLE capability set, and one name meaning two things across two examples of the
-# same credential type is a trap for anyone reading both.)
+# The delegable capability vocabulary. 'powers' on the guardianship credential (2) is
+# drawn from it, and so is every capability list in the AuthZ credential (4); the subset
+# check is what keeps (4) inside (2). Note the naming divergence from the sibling module
+# recorded in the docstring: 'powers' there is the coarse statutory scope enum, which
+# here is 'scope'.
+CAPABILITIES = ["read", "post", "message", "profile", "configure", "purchase",
+                "livestream"]
+
+# The coarse statutory scope enum, the same vocabulary the sibling module carries. Utah
+# prefers LIMITED guardianship, so a verifier checks the specific act against scope
+# before it ever looks at the fine-grained capabilities.
 SCOPES = ["plenary", "healthCare", "residence", "education", "personalRecords",
           "socialBenefits", "digitalIdentity", "contracts"]
 
-# --- sedi-guardian: Bob's ATTRIBUTIVE ('acm') authority credential, disclosed WHOLE. ---
-# The SEDI legal-recognition layer for a digital guardian: the statutory basis, the
-# statutory scope (Utah prefers LIMITED guardianship, so scope is explicit), and the
-# appointment/registration. HELD BY THE GUARDIAN (issuee = Bob) and names the WARD by
-# edge (subject -> Mia's sedi-id) -- the holder != subject invariant. Authority
-# credentials are disclosed whole (a verifier needs basis + scope + validity together),
-# so the attribute section is flat, not selectively disclosable. Registry-bound (rd):
-# guardianship terminates dynamically, so a verifier MUST check current status.
+# --- (2) Guardian as Guardian: the recognized guardianship. ---
+# State -> Bob, registry-bound (guardianship terminates dynamically, so a verifier MUST
+# check current status rather than trusting a date). Disclosed WHOLE: a verifier needs
+# basis + scope + powers + validity together, so the attribute section is flat.
+#
+# SAM'S PLACEMENT, and the recorded divergence: the ward's AID sits in the ATTRIBUTE
+# block, next to the guardian's issuee AID, exactly as drawn in #1550. The sibling #1530
+# names the ward by edge instead. See the module docstring for why the edge form is
+# better for disclosure and why this is recorded rather than decided.
 GUARDIAN_SCHEMA_MAD = {
     "$id": "",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "SEDI Digital Guardian",
     "description": "SEDI legal-recognition layer for a digital guardian (Utah Code "
-                   "63A-20). Attests the statutory basis, the statutory scope, and the "
-                   "appointment/registration. Held by the guardian (issuee); the ward "
-                   "is named by the subject edge (holder != subject). Registry-bound: "
-                   "guardianship terminates dynamically.",
+                   "63A-20). Held by the guardian (issuee); the WARD's AID is carried "
+                   "in the attribute block per the #1550 diagram (the sibling #1530 "
+                   "names the ward by edge instead). Registry-bound: guardianship "
+                   "terminates dynamically. One E1E edge to the guardian's own citizen "
+                   "credential.",
     "credentialType": "SEDI_Guardian",
     "version": "1.0.0",
     "type": "object",
@@ -417,316 +346,848 @@ GUARDIAN_SCHEMA_MAD = {
         "t": {"description": "Message type", "const": "acm"},
         "d": {"description": "Message SAID", "type": "string"},
         "u": {"description": "Message UUID", "type": "string"},
-        "i": {"description": "Issuer = appointing authority (DGO/court/individual)",
-              "type": "string"},
+        "i": {"description": "Issuer = the recognizing State agency", "type": "string"},
         "rd": {"description": "Registry SAID -- MANDATORY (dynamic termination)",
                "type": "string"},
         "s": {"description": "Schema Section",
               "oneOf": [{"type": "string"}, {"type": "object"}]},
-        "a": {
-            "description": "The recognized guardianship (disclosed whole)",
-            "oneOf": [
-                {"description": "Attribute Section SAID", "type": "string"},
-                {"type": "object",
-                 "required": ["d", "u", "i", "basis", "scope", "fiduciary",
-                              "recognition", "effectiveDate"],
-                 "properties": {
-                     "d": {"description": "Section SAID", "type": "string"},
-                     "u": {"description": "Section UUID", "type": "string"},
-                     "i": {"description": "Issuee = the GUARDIAN's AID "
-                                          "(holder != subject)", "type": "string"},
-                     "basis": {"description": "Which of the four SEDI statutory bases",
-                               "enum": ["designatedRepresentative", "custodialParent",
-                                        "courtGuardianMinor",
-                                        "courtGuardianIncapacitated"]},
-                     "subtype": {"enum": ["financialPOA", "healthCareAgent"]},
-                     "scope": {"description": "Coarse statutory scope (Utah prefers "
-                                              "LIMITED guardianship)",
-                               "type": "array", "minItems": 1, "uniqueItems": True,
-                               "items": {"enum": SCOPES}},
-                     "fiduciary": {"enum": ["bestInterest", "substitutedJudgment"]},
-                     "capacityConditioned": {"type": "boolean"},
-                     "residualParentalRights": {"type": "boolean"},
-                     "recognition": {
-                         "description": "How this authority is recognized and appointed",
-                         "type": "object",
-                         "required": ["authorityType", "appointingState",
-                                      "registrationStatus"],
-                         "properties": {
-                             "authorityType": {"enum": ["court", "selfExecuted",
-                                                        "inherentParental"]},
-                             "court": {"type": "string"},
-                             "caseNumber": {"type": "string"},
-                             "orderDate": {"type": "string", "format": "date"},
-                             "lettersReference": {"type": "string"},
-                             "instrumentReference": {"type": "string"},
-                             "appointingState": {"description": "ISO 3166-2, e.g. US-UT",
-                                                 "type": "string"},
-                             "registrationStatus": {"enum": ["native", "registeredForeign",
-                                                             "transferred"]},
-                             "utahRegistrationReference": {"type": "string"},
-                         },
-                         "additionalProperties": False},
-                     "effectiveDate": {"type": "string", "format": "date"},
-                     "reviewDueDate": {"type": "string", "format": "date"},
-                     "expiryDate": {"type": "string", "format": "date"},
-                 },
-                 "additionalProperties": False},
-            ],
-        },
-        "e": {
-            "description": "Edge section: subject (-> ward sedi-id) + authorization "
-                           "(-> instrument)",
-            "oneOf": [
-                {"type": "string"},
-                {"type": "object", "required": ["d", "subject", "authorization"],
-                 "properties": {"d": {"type": "string"}, "u": {"type": "string"},
-                                "subject": _edge_schema_enum("ward's sedi-id"),
-                                "authorization": _edge_schema_enum(
-                                    "authorizing instrument")},
-                 "additionalProperties": False}],
-        },
+        "a": {"description": "The recognized guardianship (disclosed whole)",
+              "oneOf": [
+                  {"description": "Attribute Section SAID", "type": "string"},
+                  {"type": "object",
+                   "required": ["d", "u", "i", "ward", "basis", "scope", "powers",
+                                "fiduciary", "effectiveDate"],
+                   "properties": {
+                       "d": {"description": "Section SAID", "type": "string"},
+                       "u": {"description": "Section UUID", "type": "string"},
+                       "i": {"description": "Issuee = the GUARDIAN's AID",
+                             "type": "string"},
+                       "ward": {"description": "The WARD's AID, in the attribute block "
+                                               "per the #1550 diagram",
+                                "type": "string"},
+                       "basis": {"description": "Which statutory basis",
+                                 "enum": ["designatedRepresentative", "custodialParent",
+                                          "courtGuardianMinor",
+                                          "courtGuardianIncapacitated"]},
+                       "scope": {"description": "Coarse statutory scope (Utah prefers "
+                                                "LIMITED guardianship)",
+                                 "type": "array", "minItems": 1, "uniqueItems": True,
+                                 "items": {"enum": SCOPES}},
+                       "powers": {"description": "The DELEGABLE capability set: the "
+                                                 "ceiling on any authorization the "
+                                                 "guardian issues to the ward",
+                                  "type": "array", "minItems": 1, "uniqueItems": True,
+                                  "items": {"enum": CAPABILITIES}},
+                       "fiduciary": {"enum": ["bestInterest", "substitutedJudgment"]},
+                       "effectiveDate": {"type": "string", "format": "date"},
+                       "expiryDate": {"type": "string", "format": "date"},
+                   },
+                   "additionalProperties": False}]},
+        "e": {"description": "Edge section: E1E to the guardian's own citizen credential",
+              "oneOf": [
+                  {"type": "string"},
+                  {"type": "object", "required": ["d", "citizen"],
+                   "properties": {"d": {"type": "string"}, "u": {"type": "string"},
+                                  "citizen": _edge_schema(
+                                      "E1E", "identity: the guardian's own citizen "
+                                             "credential, same subject")},
+                   "additionalProperties": False}]},
         "r": {"description": "SAID of the SEDI guardianship governance framework",
               "type": "string"},
     },
     "additionalProperties": False,
 }
 
-# --- guardian-presentation: Bob's represented-presentation ACDC to the service. ---
-# Issuer = Bob (Discloser/guardian), Issuee = the service (Disclosee). It is the
-# NEW pattern: a presentation whose holder is not the subject. Its edges pin their
-# operators so the holder != subject security property is schema-enforced:
-#   authority (I2I) -> Bob's guardian credential (proves Bob holds the authority),
-#   wardId  (NI2I)  -> Mia's sedi-id  (Bob is not the subject),
-#   wardAge (NI2I)  -> Mia's sedi-age (Bob is not the subject).
-# It is deliberately NOT registry-bound (no 'rd'): a one-time presentation is not
-# logged. Its Rules section references the guardianship governance framework by SAID.
-PRESENTATION_SCHEMA_MAD = {
+# --- (4) Ward AuthZ Social: the delegated authorization. ---
+# Bob -> Cara, in BOB'S OWN registry. This is the credential the ward presents. Its
+# attribute block carries the AuthZ payload; its two edges are the security content.
+#
+# ILLUSTRATIVE PAYLOAD, SYNTAX UNSETTLED. Sam says of the AuthZ field only that it
+# "contains the specifics of the authorization. The syntax TBD", and points at EVAC
+# (Edge Verifiable Agent Control), sketched at the end of #1550 as a resource-
+# capabilities map 'rc' of the form {resourceRoute: [capability, ...]}. That shape is
+# adopted here verbatim rather than a third vocabulary being invented, plus a time
+# window, and additionalProperties stays OPEN so a later syntax can grow into the slot.
+#
+# ONE MEASURED CONSTRAINT ON THAT SYNTAX, which this example surfaced by serializing it.
+# Making the resource route a map LABEL puts it under CESR's strict field-label grammar,
+# ATREX = ^[a-zA-Z_][a-zA-Z0-9_]*$ (src/keri/help/helping.py), enforced by Labeler for
+# every native-CESR field map -- and an ACDC attribute section is always compacted
+# through a strict Compactor, so this is not optional. A route written the obvious way,
+# "social/feed", therefore CANNOT be serialized in native CESR at all: it raises
+# SerializeError, not a validation warning. Routes here use '_' as the separator so the
+# example serializes on every kind, and the constraint is PINNED below by propertyNames
+# rather than merely observed. A syntax that wants real slash-separated routes has to
+# carry the route as a VALUE -- 'rc' as a list of {route, caps} objects -- rather than
+# as a label. That is a genuine input to the TBD, and it is why this block is worth
+# serializing over CESR rather than JSON alone.
+_ROUTE_PATTERN = "^[a-zA-Z_][a-zA-Z0-9_]*$"     # CESR's strict field-label grammar
+AUTHZ_BLOCK_SCHEMA = {
+    "description": "ILLUSTRATIVE authorization payload; SYNTAX UNSETTLED. Modeled on "
+                   "the EVAC (Edge Verifiable Agent Control) sketch in WebOfTrust/"
+                   "keripy discussion #1550: a resource-capabilities map 'rc' of the "
+                   "form {resourceRoute: [capability, ...]}, here with a time window. "
+                   "Because the route is a map LABEL it is constrained to CESR's strict "
+                   "field-label grammar, so a slash-separated route is not representable "
+                   "in native CESR; a syntax needing those must carry the route as a "
+                   "value instead. Additional properties are ALLOWED so a later syntax "
+                   "can extend this block without invalidating the example.",
+    "type": "object",
+    "required": ["rc"],
+    "properties": {
+        "rc": {"description": "Resource-capabilities map: route -> capability list. "
+                              "Route labels are pinned to CESR's strict field-label "
+                              "grammar, which native-CESR serialization enforces.",
+               "type": "object", "minProperties": 1,
+               "propertyNames": {"pattern": _ROUTE_PATTERN},
+               "additionalProperties": {"type": "array", "minItems": 1,
+                                        "uniqueItems": True,
+                                        "items": {"enum": CAPABILITIES}}},
+        "window": {"description": "Time window over which the authorization is live",
+                   "type": "object",
+                   "required": ["start", "end"],
+                   "properties": {
+                       "start": {"type": "string"},
+                       "end": {"type": "string"},
+                       "dailyHours": {"description": "Local clock window, e.g. "
+                                                     "16:00-20:00",
+                                      "type": "string"},
+                       "tz": {"description": "IANA time zone", "type": "string"}},
+                   "additionalProperties": True},
+    },
+    "additionalProperties": True,
+}
+
+AUTHZ_SCHEMA_MAD = {
     "$id": "",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "SEDI Guardian Presentation",
-    "description": "Represented presentation: a digital guardian (issuer) presenting a "
-                   "ward's fact to a verifier (issuee). Holder != subject, enforced by "
-                   "pinned edge operators: I2I to the guardian's own authority "
-                   "credential, NI2I to the ward's credentials. Not registry-bound.",
-    "credentialType": "SEDI_GuardianPresentation",
+    "title": "Ward AuthZ Social",
+    "description": "A guardian-issued delegated authorization the WARD holds and "
+                   "presents herself. Issuer = the guardian, issuee = the ward, bound "
+                   "to the GUARDIAN's own registry. Two pinned edges: I2I to the "
+                   "guardianship credential (the guardian held what he delegates) and "
+                   "E1E to the ward's own citizen credential (same subject, different "
+                   "issuers -- the case I2I would falsely reject).",
+    "credentialType": "WardAuthZSocial",
     "version": "1.0.0",
     "type": "object",
-    "required": ["v", "d", "i", "s", "a", "e", "r"],
+    "required": ["v", "d", "i", "rd", "s", "a", "e", "r"],
     "properties": {
         "v": {"description": "ACDC version string", "type": "string"},
         "t": {"description": "Message type", "const": "acm"},
         "d": {"description": "Message SAID", "type": "string"},
         "u": {"description": "Message UUID", "type": "string"},
-        "i": {"description": "Issuer = Discloser (the guardian) AID", "type": "string"},
+        "i": {"description": "Issuer = the GUARDIAN (not the State)", "type": "string"},
+        "rd": {"description": "Registry SAID -- the GUARDIAN's own registry",
+               "type": "string"},
         "s": {"description": "Schema Section",
               "oneOf": [{"type": "string"}, {"type": "object"}]},
-        "a": {"description": "Attribute Section",
+        "a": {"description": "Attribute Section carrying the authorization payload",
+              "oneOf": [
+                  {"description": "Attribute Section SAID", "type": "string"},
+                  {"type": "object",
+                   "required": ["d", "u", "i", "authz", "issuedAt"],
+                   "properties": {
+                       "d": {"description": "Section SAID", "type": "string"},
+                       "u": {"description": "Section UUID", "type": "string"},
+                       "i": {"description": "Issuee = the WARD's AID", "type": "string"},
+                       "authz": AUTHZ_BLOCK_SCHEMA,
+                       "issuedAt": {"type": "string"}},
+                   "additionalProperties": False}]},
+        "e": {"description": "Edge section: I2I authority + E1E subject",
               "oneOf": [
                   {"type": "string"},
-                  {"type": "object",
-                   "required": ["d", "u", "i", "purpose", "occurredAt"],
-                   "properties": {"d": {"type": "string"}, "u": {"type": "string"},
-                                  "i": {"description": "Issuee = Disclosee (service)",
-                                        "type": "string"},
-                                  "purpose": {"type": "string"},
-                                  "occurredAt": {"type": "string"}},
+                  {"type": "object", "required": ["d", "authority", "subject"],
+                   "properties": {
+                       "d": {"type": "string"}, "u": {"type": "string"},
+                       "authority": _edge_schema(
+                           "I2I", "the guardian holds this authority"),
+                       "subject": _edge_schema(
+                           "E1E", "identity: the ward's own citizen credential, same "
+                                  "subject, different issuer")},
                    "additionalProperties": False}]},
-        "e": {"description": "Edge Section",
-              "oneOf": [
-                  {"type": "string"},
-                  {"type": "object",
-                   "required": ["d", "authority", "wardId", "wardAge"],
-                   "properties": {"d": {"type": "string"}, "u": {"type": "string"},
-                                  "authority": _edge_schema(
-                                      "I2I", "presenter holds this authority"),
-                                  "wardId": _edge_schema(
-                                      "NI2I", "ward data, presenter is not subject"),
-                                  "wardAge": _edge_schema(
-                                      "NI2I", "ward data, presenter is not subject")},
-                   "additionalProperties": False}]},
-        "r": {"description": "SAID of the SEDI guardianship governance framework",
+        "r": {"description": "SAID of the delegated-authorization governance framework",
               "type": "string"},
     },
     "additionalProperties": False,
 }
 
-# Registry inception timestamps (the DGO, the endorser, and the guardianship registry).
-REG_DGO_STAMP = "2026-01-05T12:00:00.000000+00:00"
-REG_ENDORSER_STAMP = "2026-01-06T12:00:00.000000+00:00"
-REG_GUARDIAN_STAMP = "2026-01-07T12:00:00.000000+00:00"
+# Published governance frameworks, referenced BY SAID rather than authored here. Each is
+# a PLACEHOLDER digest of a description string, standing in for the SAID a real
+# deployment computes over the governance document.
+CITIZEN_RULES_SAID = Diger(ser=b'SEDI citizen governance framework v1').qb64
+WARD_RULES_SAID = Diger(ser=b'SEDI ward governance framework v1').qb64
+GUARDIAN_RULES_SAID = Diger(ser=b'SEDI guardianship governance framework v1').qb64
+AUTHZ_RULES_SAID = Diger(
+    ser=b'SEDI delegated-authorization governance framework v1').qb64
 
-# The ward's date of birth, named once so the tests can assert that a WHOLE-disclosed
-# authority credential never restates it. Mia is 6.
-WARD_DOB = "2020-03-15"
+# Registry inception timestamps: the State's citizen registry, the State's guardianship
+# registry, and the guardian's OWN registry that the AuthZ credential binds to.
+REG_CITIZEN_STAMP = "2026-01-05T12:00:00.000000+00:00"
+REG_GUARDIAN_STAMP = "2026-01-06T12:00:00.000000+00:00"
+REG_AUTHZ_STAMP = "2026-07-01T12:00:00.000000+00:00"
 
-# Fixed timestamps for the IPEX exn messages (kept stable so SAIDs are reproducible).
-APPLY_STAMP = "2027-06-15T15:15:00.000000+00:00"
-OFFER_STAMP = "2027-06-15T15:16:00.000000+00:00"
-AGREE_STAMP = "2027-06-15T15:17:00.000000+00:00"
-GRANT_STAMP = "2027-06-15T15:18:00.000000+00:00"
-ADMIT_STAMP = "2027-06-15T15:19:00.000000+00:00"
-
+# Fixed timestamps for the credentials and the IPEX exn messages (kept stable so SAIDs
+# are reproducible).
+AUTHZ_STAMP = "2026-08-01T09:00:00.000000+00:00"
+APPLY_STAMP = "2026-08-03T18:00:00.000000+00:00"
+OFFER_STAMP = "2026-08-03T18:01:00.000000+00:00"
+AGREE_STAMP = "2026-08-03T18:02:00.000000+00:00"
+GRANT_STAMP = "2026-08-03T18:03:00.000000+00:00"
+ADMIT_STAMP = "2026-08-03T18:04:00.000000+00:00"
 
 # --- Blinding-nonce / uuid slot allocation: each NONCES[i] used at most once. ---
-# sedi-id (attributive): attribute-section uuid + one nonce per nested block + acdc uuid.
-N_SEDI_A, N_SEDI_PHOTO, N_SEDI_DOB, N_SEDI_RES, N_SEDI_NAME, N_SEDI_ACDC = 0, 1, 2, 3, 4, 5
-# age (aggregative): issuee-block nonce + six flag-block nonces (7..12) + acdc uuid +
-# E1E edge-section uuid + E1E edge uuid.
-N_AGE_ISSUEE, N_AGE_FLAG0, N_AGE_ACDC, N_AGE_E, N_AGE_E_ID = 6, 7, 13, 14, 15
-# registries (DGO id-cred, endorser age-cred, guardianship) + birth-cert (a uuid + acdc).
-N_REG_DGO, N_REG_ENDORSER, N_REG_GUARDIAN = 16, 17, 18
-N_BC_A, N_BC_ACDC = 19, 20
-# guardian credential (attribute uuid, acdc uuid, edge-section uuid, two edge uuids).
-N_G_A, N_G_ACDC, N_G_E, N_G_E_SUBJ, N_G_E_AUTH = 21, 22, 23, 24, 25
-# presentation (attribute uuid, acdc uuid, edge-section uuid, three edge uuids).
-N_P_A, N_P_ACDC, N_P_E, N_P_E_AUTH, N_P_E_ID, N_P_E_AGE = 26, 27, 28, 29, 30, 31
+# three registries.
+N_REG_CITIZEN, N_REG_GUARDIAN, N_REG_AUTHZ = 0, 1, 2
+# (1) guardian-as-citizen: attribute uuid + three block nonces + acdc uuid.
+N_GC_A, N_GC_NAME, N_GC_DOB, N_GC_RES, N_GC_ACDC = 3, 4, 5, 6, 7
+# (2) guardian-as-guardian: attribute uuid, acdc uuid, edge-section uuid, one edge uuid.
+N_GG_A, N_GG_ACDC, N_GG_E, N_GG_E_CIT = 8, 9, 10, 11
+# (3) ward-as-citizen: attribute uuid + three block nonces + acdc uuid, edge-section
+# uuid, one edge uuid.
+N_WC_A, N_WC_NAME, N_WC_DOB, N_WC_RES = 12, 13, 14, 15
+N_WC_ACDC, N_WC_E, N_WC_E_GUARD = 16, 17, 18
+# (4) ward AuthZ social: attribute uuid, acdc uuid, edge-section uuid, two edge uuids.
+N_AZ_A, N_AZ_ACDC, N_AZ_E, N_AZ_E_AUTH, N_AZ_E_SUBJ = 19, 20, 21, 22, 23
 
-# Age aggregate ARRAY positions (A[0] = AGID; A[1] = issuee; A[2..] = the flags).
-AGE_ISSUEE = 1
-AGE_FLAG0 = 2
-AGE_OVER13 = AGE_FLAG0 + AGE_THRESHOLDS.index(13)   # array index of the over-13 flag
-
-# Mia's age at the presentation date (DOB 2020-03-15, presentation 2027-06-15). She is
-# under every threshold, and the one the store asks for is the lowest: over13 is False,
-# which places her in 13-76's "child" age category (13-76-101(2)(a)) and so sets the
-# developer's safety defaults at their most restrictive (13-76-202(3)(a)).
-WARD_AGE = 7
-
-# The guardianship registry's blinding salt -- shared ONLY between the DGO (issuer) and
-# Bob (the guardian/holder), never handed to the service. Used to blind the per-event
-# registry state (Phase 4). The states a guardianship registry event can carry.
-GUARDIAN_SALT = Noncer(raw=b'guardregblindsalt').qb64
-GUARDIAN_STATES = ['issued', 'revoked']
+# Cara's age at presentation (DOB 2009-04-10, presentation 2026-08-03). 13-71 grades no
+# finer than "minor" (under 18), so her exact age is legally immaterial; what matters is
+# that she operates her own device and holds her own keys, which is why the ward presents
+# here and the guardian presents in the sibling, whose ward is seven
+# (tests/acdc/test_guardianship_presentation.py).
+CARA_AGE = 17
 
 
-def _sedi_attr():
-    """Mia's sedi-id attribute section (a fresh map each call).
+def _citizen_registry(kind):
+    """The State's citizen registry inception (rip event): (1) and (3) bind to it."""
+    return regcept(israid=STATE, uuid=NONCES[N_REG_CITIZEN], stamp=REG_CITIZEN_STAMP,
+                   kind=kind)
+
+
+def _guardian_registry(kind):
+    """The State's guardianship registry inception. Guardianship terminates dynamically
+    (majority, restored capacity, court order), so (2) is registry-bound and a verifier
+    checks current status rather than trusting the expiry date."""
+    return regcept(israid=STATE, uuid=NONCES[N_REG_GUARDIAN], stamp=REG_GUARDIAN_STAMP,
+                   kind=kind)
+
+
+def _authz_registry(kind):
+    """The GUARDIAN's OWN registry. (4) is issued by Bob, not the State, so it binds to
+    Bob's registry -- which is also where he revokes the authorization when he changes
+    his mind, without the State being involved at all. This registry independence is a
+    structural consequence of the ward-presents shape: the delegation is the guardian's
+    act, so its lifecycle is the guardian's to manage."""
+    return regcept(israid=BOB, uuid=NONCES[N_REG_AUTHZ], stamp=REG_AUTHZ_STAMP,
+                   kind=kind)
+
+
+def _guardian_citizen_attr():
+    """Bob's citizen attribute section (a fresh map each call).
 
     Attributive: the issuee ('i') is inserted at the top of the section by acdcmap via
     iseaid, and each identity attribute is its own individually-blinded (own 'u'),
-    self-addressing (own 'd') nested block, so it can be partially disclosed or withheld
-    independently. Mia is six (DOB 2020-03-15); Bob custodies the keys that control the
-    AID this credential is issued to, which is why she never presents it herself.
+    self-addressing (own 'd') nested block, so it can be disclosed or withheld
+    independently of the others.
     """
-    return dict(d='', u=NONCES[N_SEDI_A],
-                photo=dict(d='', u=NONCES[N_SEDI_PHOTO],
-                           photo="<state-endorsed-photo-bytes>"),
-                dob=dict(d='', u=NONCES[N_SEDI_DOB], dob=WARD_DOB),
-                residence=dict(d='', u=NONCES[N_SEDI_RES],
-                               residence="Provo UT"),
-                name=dict(d='', u=NONCES[N_SEDI_NAME], name="Mia Carver"))
+    return dict(d='', u=NONCES[N_GC_A],
+                name=dict(d='', u=NONCES[N_GC_NAME], name="Bob Carver"),
+                dob=dict(d='', u=NONCES[N_GC_DOB], dob="1988-02-17"),
+                residence=dict(d='', u=NONCES[N_GC_RES], residence="Provo UT"))
 
 
-def _age_ael():
-    """Mia's age-threshold aggregate element list (a fresh list each call).
+def _ward_citizen_attr():
+    """Cara's citizen attribute section (a fresh map each call). Same shape as Bob's --
+    what distinguishes a ward's citizen credential is the encumbrance EDGE, not the
+    attributes."""
+    return dict(d='', u=NONCES[N_WC_A],
+                name=dict(d='', u=NONCES[N_WC_NAME], name="Cara Carver"),
+                dob=dict(d='', u=NONCES[N_WC_DOB], dob="2009-04-10"),
+                residence=dict(d='', u=NONCES[N_WC_RES], residence="Provo UT"))
 
-    Element 0 is the AGID placeholder; element 1 is the issuee block (i = MIA), which
-    is where SerderACDC.iseaid resolves an aggregate issuee from (.sad['A'][1]['i']);
-    elements 2.. are one individually-blinded boolean block per AGE_THRESHOLDS entry
-    (over<n> = WARD_AGE >= n). Mia is 6, so every flag is False.
 
-    WHAT THE AGGREGATE HIDES HERE, STATED CORRECTLY. It hides the field LABELS and the
-    block SAIDs of the undisclosed elements, so the service cannot tell which other
-    thresholds exist. What it cannot hide is a logical consequence, and cumulative
-    thresholds have one: the flags are a MONOTONE predicate over a single underlying age,
-    so disclosing the lowest FALSE threshold entails that every higher one is False too.
-    Mia's over13=False therefore settles over16, over18, over21, over55 and over65 as
-    well -- which costs nothing here, since the service is being told she is a child, but
-    it is the same property the sibling age-vector examples flag in the other direction
-    (a 66-year-old disclosing over65 has disclosed the whole vector). An application that
-    needs the entailment hidden wants disjoint bands rather than cumulative thresholds,
-    at the cost of more blocks per range query. The birthdate and the exact age are what
-    this disclosure actually protects, and they stay in the withheld sedi-id block.
+def _guardian_attr(powers=None):
+    """Bob's guardianship attribute section (a fresh map each call).
+
+    Disclosed whole (flat, not selectively disclosable): a verifier needs basis + scope
+    + powers + validity together. basis = custodialParent (the inherent parental right);
+    scope limited to digitalIdentity; powers is the DELEGABLE capability set, and it is
+    the ceiling every AuthZ credential Bob issues must stay under. 'ward' carries Cara's
+    AID in the attribute block per Sam's #1550 diagram (see the module docstring's
+    recorded divergence).
     """
-    els = ['', dict(d='', u=NONCES[N_AGE_ISSUEE], i=MIA)]
-    for offset, n in enumerate(AGE_THRESHOLDS):
-        els.append(dict(d='', u=NONCES[N_AGE_FLAG0 + offset],
-                        **{f"over{n}": WARD_AGE >= n}))
-    return els
+    if powers is None:
+        powers = ["read", "post", "message", "profile", "configure"]
+    return dict(d='', u=NONCES[N_GG_A],
+                ward=CARA,
+                basis="custodialParent",
+                scope=["digitalIdentity"],
+                powers=list(powers),
+                fiduciary="bestInterest",
+                # The date the State RECOGNIZED the digital guardianship, deliberately
+                # not the date the parental right arose. For a custodial parent the
+                # latter is the ward's birth date, and an authority credential that both
+                # models agree is disclosed WHOLE cannot withhold an attribute -- so an
+                # effectiveDate of 2009-04-10 would hand every verifier Cara's exact
+                # birthdate while her own citizen credential was carefully withholding
+                # it. That is the docstring's disclosure argument arriving as a concrete
+                # leak rather than a principle, and it is dodged here rather than
+                # asserted, since a real deployment records the recognition date anyway.
+                effectiveDate="2026-01-06",
+                # Majority: Cara's 18th birthday. This DOES leak her birth month and day
+                # (2027-04-10 minus 18 years), and is left in as an honest residual --
+                # a termination date is load-bearing for a verifier in a way an
+                # effective date is not, so the fix is a coarser expiry (a quarter, a
+                # year) rather than dropping the field, and that is a schema decision
+                # for a deployment rather than something this example should invent.
+                expiryDate="2027-04-10")
 
 
-def _ward_credentials(kind):
-    """Build Mia's two source credentials, registry-bound and schema-validated.
+def _authz_block():
+    """The ILLUSTRATIVE AuthZ payload (a fresh map each call).
 
-    sedi-id is ATTRIBUTIVE ('acm') with individually partially-disclosable nested
-    blocks (issuee at a.i = MIA); age is AGGREGATIVE ('acg') with an array of boolean
-    age-threshold flags (issuee at A[1].i = MIA) and one E1E identity edge chaining it
-    back to the core sedi-id credential -- an identity relation (same issuee, issuer !=
-    issuee), the SEDI 'entitlement chains to the core identity' pattern (disc #1515),
-    verified by _verify_identity_edge. Both bind to real registries created via regcept.
-    Returns (sedi, age, ageAggor) -- the Aggor lets callers selectively disclose.
+    EVAC-shaped (#1550): 'rc' maps a resource route to the capability list the ward may
+    exercise on it, and 'window' bounds when. Bob grants Cara a read-only feed, posting
+    on her own posts route, and direct messages -- and does NOT grant 'purchase',
+    'livestream' or anything else he holds. The capability tokens here are a strict
+    subset of the 'powers' in the guardianship credential, which is the property
+    _verify_authz_chain enforces.
     """
-    regDgo = regcept(israid=DGO, uuid=NONCES[N_REG_DGO], stamp=REG_DGO_STAMP, kind=kind)
-    regEndorser = regcept(israid=ENDORSER, uuid=NONCES[N_REG_ENDORSER],
-                          stamp=REG_ENDORSER_STAMP, kind=kind)
-
-    _, sediSchema = _saidify_schema(dict(SEDI_SCHEMA_MAD), kind=kind)
-    _, ageSchema = _saidify_schema(dict(AGE_SCHEMA_MAD), kind=kind)
-
-    # sedi-id: attributive; acdcmap inserts the issuee (iseaid -> a.i = MIA).
-    sedi = acdcmap(israid=DGO, uuid=NONCES[N_SEDI_ACDC], regid=regDgo.said,
-                   schema=sediSchema, attribute=_sedi_attr(), iseaid=MIA, kind=kind)
-    # age: aggregative boolean-flag credential, issued by the endorser to Mia, chained
-    # back to the core sedi-id with one E1E identity edge. E1E constrains only the issuee
-    # (near == far), so it holds though the DGO issues sedi-id and the endorser issues
-    # age (issuer != issuee in both) -- the case delegative I2I would wrongly reject.
-    ageEdge = dict(d='', u=NONCES[N_AGE_E],
-                   identity=dict(d='', u=NONCES[N_AGE_E_ID], n=sedi.said,
-                                 s=sedi.sad['s']['$id'], o='E1E'))
-    ageAggor = Aggor(ael=_age_ael(), makify=True, kind=kind)
-    age = acdcagg(israid=ENDORSER, uuid=NONCES[N_AGE_ACDC], regid=regEndorser.said,
-                  schema=ageSchema, aggregate=ageAggor.ael, edge=ageEdge, kind=kind)
-    return sedi, age, ageAggor
+    return dict(rc={"social_feed": ["read"],
+                    "social_posts": ["read", "post"],
+                    "social_dm": ["read", "message"]},
+                window=dict(start="2026-08-01T00:00:00+00:00",
+                            end="2026-11-30T23:59:59+00:00",
+                            dailyHours="16:00-20:00",
+                            tz="America/Denver"))
 
 
-def _verify_identity_edge(near, far):
-    """The example's verifier branch for an E1E identity edge (near -> far).
+def _authz_capabilities(authz):
+    """Every capability token appearing anywhere in an AuthZ payload, as a set.
 
-    E1E binds two credentials to the SAME subject: the near ACDC's issuee AID MUST
-    equal the far node's issuee AID, both resolved via SerderACDC.iseaid (so an
-    aggregate node's A[1].i reads the same as an attributive a.i). Unlike delegative
-    I2I it puts NO constraint on the issuer -- which is why it holds for two credentials
-    issued by different third parties to one subject (issuer != issuee), exactly the
-    case a coerce-to-I2I verifier (before PR #1527) rejects. Returns True or raises.
+    THE syntax-insulation seam. The AuthZ block's syntax is explicitly unsettled
+    (#1550), so no assertion in this module reaches into it directly: the subset check,
+    the over-reach negative and the serialization-kinds test all ask this function. When
+    the syntax changes, this function changes and nothing else does.
     """
-    edge = near.sad['e']['identity']
-    assert edge['o'] == 'E1E'                          # identity operator
-    assert edge['n'] == far.said                       # edge points at this far node
-    assert near.iseaid is not None                     # near must be targeted (has issuee)
-    assert near.iseaid == far.iseaid                   # same subject: the identity relation
+    caps = set()
+    for capabilities in authz.get('rc', {}).values():
+        caps.update(capabilities)
+    return caps
+
+
+def _guardian_citizen(kind, reg=None):
+    """(1) Guardian as Citizen: the State's SEDI identity credential for Bob.
+
+    Registry-bound, disclosed by compaction, no edges. It is the far node of the
+    guardianship credential's E1E edge, which is what ties the recognized guardian to a
+    state-endorsed human rather than to a bare AID.
+    """
+    if reg is None:
+        reg = _citizen_registry(kind)
+    _, schema = _saidify_schema(dict(GUARDIAN_CITIZEN_SCHEMA_MAD), kind=kind)
+    return acdcmap(israid=STATE, uuid=NONCES[N_GC_ACDC], regid=reg.said, schema=schema,
+                   attribute=_guardian_citizen_attr(), iseaid=BOB,
+                   rule=CITIZEN_RULES_SAID, kind=kind)
+
+
+def _guardian_credential(kind, guardianCitizen=None, reg=None, powers=None):
+    """(2) Guardian as Guardian: the State's recognition of Bob as Cara's guardian.
+
+    Held by Bob (issuee), carrying Cara's AID in the attribute block per the #1550
+    diagram. One edge, to Bob's own citizen credential, operator E1E: same subject (Bob
+    is the issuee of both), and I2I would demand issuer == issuee, i.e. State == Bob,
+    which is false -- so the identity operator from PR #1527 is the only correct label.
+    Registry-bound because guardianship terminates dynamically.
+    """
+    if guardianCitizen is None:
+        guardianCitizen = _guardian_citizen(kind)
+    if reg is None:
+        reg = _guardian_registry(kind)
+    _, schema = _saidify_schema(dict(GUARDIAN_SCHEMA_MAD), kind=kind)
+    edge = dict(d='', u=NONCES[N_GG_E],
+                citizen=dict(d='', u=NONCES[N_GG_E_CIT], n=guardianCitizen.said,
+                             s=guardianCitizen.sad['s']['$id'], o='E1E'))
+    return acdcmap(israid=STATE, uuid=NONCES[N_GG_ACDC], regid=reg.said, schema=schema,
+                   attribute=_guardian_attr(powers=powers), iseaid=BOB, edge=edge,
+                   rule=GUARDIAN_RULES_SAID, kind=kind)
+
+
+def _ward_citizen(kind, guardian=None, reg=None):
+    """(3) Ward as Citizen Ward: the State's SEDI identity credential for Cara.
+
+    Same attribute shape as Bob's, plus the encumbrance edge to the guardianship
+    credential, operator NI2I: the near issuee is Cara and the far issuee is Bob, so the
+    subjects differ and the edge is a plain reference. The edge is what makes the ward's
+    OWN credential declare that it is encumbered -- a verifier reading only Cara's
+    credential learns a guardianship stands over her identity, which is what tells a
+    platform to look for an authorization before it honors a settings change.
+    """
+    if guardian is None:
+        guardian = _guardian_credential(kind)
+    if reg is None:
+        reg = _citizen_registry(kind)
+    _, schema = _saidify_schema(dict(WARD_CITIZEN_SCHEMA_MAD), kind=kind)
+    edge = dict(d='', u=NONCES[N_WC_E],
+                guardian=dict(d='', u=NONCES[N_WC_E_GUARD], n=guardian.said,
+                              s=guardian.sad['s']['$id'], o='NI2I'))
+    return acdcmap(israid=STATE, uuid=NONCES[N_WC_ACDC], regid=reg.said, schema=schema,
+                   attribute=_ward_citizen_attr(), iseaid=CARA, edge=edge,
+                   rule=WARD_RULES_SAID, kind=kind)
+
+
+def _ward_authz(kind, guardian=None, wardCitizen=None, reg=None, authz=None,
+                compactify=False):
+    """(4) Ward AuthZ Social: the delegated authorization Cara holds and presents.
+
+    Issuer = BOB (not the State), issuee = CARA, bound to BOB's own registry. Its two
+    edges are the security content of the whole example:
+
+      authority (I2I) -> (2). Near issuer is Bob, far issuee is Bob: the same-holder
+        constraint, and the proof that Bob held the authority he is attenuating.
+      subject (E1E)   -> (3). Near issuee is Cara, far issuee is Cara -- same subject --
+        but the issuers differ (Bob vs the State). I2I would demand issuer(near) ==
+        issuee(far), i.e. Bob == Cara, and would falsely reject a sound identity
+        relation. E1E (PR #1527) constrains only the issuee, which is why it holds. This
+        is the second independent use case for the operator, and it comes from Sam's own
+        diagram in #1550 rather than from the PR that proposed it.
+    """
+    if guardian is None:
+        guardian = _guardian_credential(kind)
+    if wardCitizen is None:
+        wardCitizen = _ward_citizen(kind, guardian=guardian)
+    if reg is None:
+        reg = _authz_registry(kind)
+    if authz is None:
+        authz = _authz_block()
+    _, schema = _saidify_schema(dict(AUTHZ_SCHEMA_MAD), kind=kind)
+    attribute = dict(d='', u=NONCES[N_AZ_A], authz=authz, issuedAt=AUTHZ_STAMP)
+    edge = dict(d='', u=NONCES[N_AZ_E],
+                authority=dict(d='', u=NONCES[N_AZ_E_AUTH], n=guardian.said,
+                               s=guardian.sad['s']['$id'], o='I2I'),
+                subject=dict(d='', u=NONCES[N_AZ_E_SUBJ], n=wardCitizen.said,
+                             s=wardCitizen.sad['s']['$id'], o='E1E'))
+    return acdcmap(israid=BOB, uuid=NONCES[N_AZ_ACDC], regid=reg.said, schema=schema,
+                   attribute=attribute, iseaid=CARA, edge=edge, rule=AUTHZ_RULES_SAID,
+                   kind=kind, compactify=compactify)
+
+
+def _credential_graph(kind, powers=None, authz=None):
+    """Build all four credentials in dependency order and return them.
+
+    Order is forced by the edges: (1) has none, (2) edges to (1), (3) edges to (2), and
+    (4) edges to both (2) and (3). The DAG is therefore a chain with one fork at the
+    bottom, which is what lets a single presentation of (4) reach every other node.
+    """
+    citizenReg = _citizen_registry(kind)
+    guardianCitizen = _guardian_citizen(kind, reg=citizenReg)
+    guardian = _guardian_credential(kind, guardianCitizen=guardianCitizen, powers=powers)
+    wardCitizen = _ward_citizen(kind, guardian=guardian, reg=citizenReg)
+    wardAuthz = _ward_authz(kind, guardian=guardian, wardCitizen=wardCitizen,
+                            authz=authz)
+    return guardianCitizen, guardian, wardCitizen, wardAuthz
+
+
+def _i2i_holds(near, far):
+    """Would the DELEGATIVE I2I operator hold on this edge? (issuer(near) == issuee(far))
+
+    Used to show what the two E1E edges cost if an implementer, or a pre-#1527 verifier
+    that coerces an unknown operator, treats them as I2I: the answer is False in both
+    cases, so I2I does not merely under-specify the relation, it REJECTS it.
+    """
+    return near.sad['i'] == far.iseaid
+
+
+# ---------------------------------------------------------------------------
+# The verifier's binding for a ward-presented delegated authorization.
+# ---------------------------------------------------------------------------
+def _verify_authz_chain(wardAuthz, guardian, wardCitizen, guardianCitizen,
+                        scope="digitalIdentity"):
+    """The security property, checked as a whole. Returns True or raises AssertionError.
+
+    An AuthZ credential the WARD presents authorizes the act only if every one of these
+    holds. As in the sibling module, the schema const-pins make a mislabeled operator
+    unrepresentable on the wire, but the BINDING -- the correspondence between the AIDs
+    those edges connect -- is app-layer logic an implementer must port, not something
+    the operator labels achieve on their own.
+
+      1. Authority (I2I): the AuthZ credential's issuer is the issuee of the
+         guardianship credential its 'authority' edge points at. Bob issued it and Bob
+         holds the guardianship, so the delegation traces to a recognized authority.
+      2. Subject (E1E): the AuthZ credential's issuee is the issuee of the ward's own
+         citizen credential its 'subject' edge points at -- the same human -- while the
+         two ISSUERS differ, which is the shape I2I would falsely reject.
+      3. Guardian identity (E1E): the guardianship credential's issuee is the issuee of
+         the guardian's own citizen credential, so the recognized guardian is a
+         state-endorsed person and not a bare AID.
+      4. Encumbrance (NI2I): the ward's citizen credential points at THIS guardianship,
+         and the two subjects differ, which is why the operator is the untargeted NI2I.
+      5. Ward/guardian correspondence: the ward named in the guardianship credential is
+         the same AID as the issuee of the AuthZ credential and of the ward's citizen
+         credential. Without this an attacker with any valid guardianship could issue
+         an authorization to any child.
+      6. Attenuation: every capability delegated by the AuthZ block is one the
+         guardianship credential's 'powers' actually confers. A guardian cannot delegate
+         more than he holds.
+      7. Scope: the coarse statutory scope covers the act (Utah prefers LIMITED
+         guardianship, so the specific act is checked against scope before the
+         fine-grained capabilities are read at all).
+
+    Two checks a COMPLETE verifier adds are out of scope at this altitude, exactly as in
+    the sibling module: grounding the guardianship credential's ISSUER as an authority
+    competent to recognize a guardianship (a Layer-2 trust-root check), and enforcing
+    each edge's 's' far-node schema constraint, which the reference verifyChain also
+    omits. Registry status is a third: (2) and (4) are both registry-bound and a real
+    verifier checks that both are currently issued.
+    """
+    e = wardAuthz.sad['e']
+    # (1) authority I2I: the delegator held what he delegated.
+    assert e['authority']['o'] == 'I2I'
+    assert e['authority']['n'] == guardian.said
+    assert wardAuthz.sad['i'] == guardian.iseaid          # issuer(near) == issuee(far)
+    # (2) subject E1E: same subject, different issuers -- the case I2I rejects.
+    assert e['subject']['o'] == 'E1E'
+    assert e['subject']['n'] == wardCitizen.said
+    assert wardAuthz.iseaid is not None                   # E1E needs a targeted near node
+    assert wardAuthz.iseaid == wardCitizen.iseaid         # the identity relation
+    assert wardAuthz.sad['i'] != wardCitizen.sad['i']     # ...across different issuers
+    # (3) guardian identity E1E: the guardian is a state-endorsed person.
+    gEdge = guardian.sad['e']['citizen']
+    assert gEdge['o'] == 'E1E'
+    assert gEdge['n'] == guardianCitizen.said
+    assert guardian.iseaid == guardianCitizen.iseaid
+    # (4) encumbrance NI2I: the ward's own credential points at THIS guardianship, and
+    # the subjects differ, which is what disqualifies both targeted operators.
+    wEdge = wardCitizen.sad['e']['guardian']
+    assert wEdge['o'] == 'NI2I'
+    assert wEdge['n'] == guardian.said
+    assert wardCitizen.iseaid != guardian.iseaid
+    # (5) ward/guardian correspondence: one ward, named consistently everywhere.
+    assert guardian.sad['a']['ward'] == wardAuthz.iseaid
+    assert guardian.sad['a']['ward'] == wardCitizen.iseaid
+    # (6) attenuation: the delegated capabilities are a subset of the delegable powers.
+    delegated = _authz_capabilities(wardAuthz.sad['a']['authz'])
+    assert delegated                                      # a payload that grants nothing
+    assert delegated <= set(guardian.sad['a']['powers'])  # ...cannot be checked
+    # (7) scope: the coarse statutory scope covers the act.
+    assert scope in guardian.sad['a']['scope']
     return True
 
 
-def _ward_id_disclosure(sedi, kind):
-    """Mia's minimal disclosure of sedi-id: reveal the issuee only, withhold every
-    identity attribute (photo/dob/residence/name) as a bare SAID.
+# ---------------------------------------------------------------------------
+# Phase 1: the four schemas and the helpers that saidify and validate them.
+# ---------------------------------------------------------------------------
+def test_wardauthz_schemas_JSON():
+    """Phase 1: four purpose-authored Draft 2020-12 schemas, each self-addressed.
 
-    For the guardianship presentation the service needs to BIND the ward, not read her
-    identity attributes, so nothing but the issuee is revealed -- the minimal disclosure.
-    sedi-id is attributive, so disclosure is by compaction: each nested block collapses
-    to a SAID and the mix recomputes to the same committed section SAID. (A richer flow
-    could reveal a chosen block in full -- test_cp_disclosure.py reveals the photo that
-    way -- but a guardian binding a ward discloses nothing beyond the issuee.)
+    Every ACDC in this example commits to a real schema in its own 's' section, so the
+    schemas come first and are asserted here on their own terms: each is a well-formed
+    Draft 2020-12 document, each saidifies to a stable '$id', and the four SAIDs are
+    distinct (the ward's citizen credential and the guardian's share an attribute shape
+    but are NOT the same schema -- the ward's requires the encumbrance edge, which is
+    what a verifier reads to tell them apart).
+
+    The schema is also where the four edge operators are pinned, so the pins are
+    asserted directly rather than only through the credentials that carry them.
     """
-    compactor = Compactor(mad=dict(sedi.sad['a']), makify=True, kind=kind)
+    kind = Kinds.json
+    gcSaid, gcSchema = _saidify_schema(dict(GUARDIAN_CITIZEN_SCHEMA_MAD), kind=kind)
+    ggSaid, ggSchema = _saidify_schema(dict(GUARDIAN_SCHEMA_MAD), kind=kind)
+    wcSaid, wcSchema = _saidify_schema(dict(WARD_CITIZEN_SCHEMA_MAD), kind=kind)
+    azSaid, azSchema = _saidify_schema(dict(AUTHZ_SCHEMA_MAD), kind=kind)
+
+    for said, schema in ((gcSaid, gcSchema), (ggSaid, ggSchema),
+                         (wcSaid, wcSchema), (azSaid, azSchema)):
+        Draft202012Validator.check_schema(schema)
+        assert schema['$id'] == said                # self-addressed, '$id' first
+        assert said.startswith('E')                 # Blake3-256 SAID
+    assert len({gcSaid, ggSaid, wcSaid, azSaid}) == 4
+    assert gcSaid == "EJVQ1b7CfiAQiq3MB0ffqaM6W3UT_6UW182Hvs9os7dS"
+    assert ggSaid == "ENv3zT7Ni1yl8WOE4dIby4thRGXCKrgHMLqG86K1voFd"
+    assert wcSaid == "EGg6ihxJmig7CE0cFSuxdQF6Gl4ByVTQqP5qYK8R6bW6"
+    assert azSaid == "EP_6kA4inOsIK6DjNEy_qEPUF-vTExbfda1R_NgcPBVo"
+
+    # The four operator pins, read straight off the schemas. Each edge property's 'o'
+    # is a const, so the operator is part of the shape rather than a convention.
+    def pinned(schema, edgeName):
+        return schema['properties']['e']['oneOf'][1]['properties'][edgeName][
+            'oneOf'][1]['properties']['o']['const']
+
+    assert pinned(azSchema, 'authority') == 'I2I'   # (4) -> (2), same-holder
+    assert pinned(azSchema, 'subject') == 'E1E'     # (4) -> (3), identity
+    assert pinned(ggSchema, 'citizen') == 'E1E'     # (2) -> (1), identity
+    assert pinned(wcSchema, 'guardian') == 'NI2I'   # (3) -> (2), reference
+
+    # The AuthZ payload is illustrative and its syntax unsettled, so the block is
+    # deliberately OPEN: an unknown sibling of 'rc' validates, and a later syntax can
+    # grow into the slot without invalidating anything already written.
+    authzProps = azSchema['properties']['a']['oneOf'][1]['properties']['authz']
+    assert authzProps['additionalProperties'] is True
+    assert "SYNTAX UNSETTLED" in authzProps['description']
+    assert "#1550" in authzProps['description']
+    # ...but the ONE part of it that is not free: because an EVAC resource route is a map
+    # LABEL, native-CESR serialization holds it to CESR's strict field-label grammar, so
+    # the schema pins routes to exactly that grammar rather than letting a JSON-only
+    # author write a route the wire cannot carry.
+    assert authzProps['properties']['rc']['propertyNames']['pattern'] == _ROUTE_PATTERN
+    assert _ROUTE_PATTERN == ATREX.decode()      # the same rule Labeler enforces
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: the four credentials, their registries and their edges.
+# ---------------------------------------------------------------------------
+def test_wardauthz_credentials_JSON():
+    """Phase 2: the four-credential graph from Sam's #1550 diagram, built and validated.
+
+    The State issues three -- Bob's citizen credential, the guardianship that recognizes
+    him, and Cara's citizen credential -- and BOB issues the fourth, the delegated
+    authorization, in his OWN registry. That last fact is the structural signature of
+    the ward-presents shape: the delegation is the guardian's act, so its lifecycle is
+    his to manage and he can revoke it without the State being involved.
+
+    Asserted here: issuer and issuee of each credential; that all four are registry-
+    bound and that (4)'s registry is Bob's rather than the State's; that each validates
+    against its own schema; that the ward's citizen credential declares its encumbrance;
+    and that the schema has teeth -- an unrecognized capability, an empty powers list
+    and a missing encumbrance edge are each rejected.
+    """
+    kind = Kinds.json
+    guardianCitizen, guardian, wardCitizen, wardAuthz = _credential_graph(kind)
+
+    # (1) Guardian as Citizen: State -> Bob, registry-bound, no edges.
+    assert guardianCitizen.ilk == Ilks.acm
+    assert guardianCitizen.sad['i'] == STATE
+    assert guardianCitizen.iseaid == BOB
+    assert guardianCitizen.sad['rd'] == _citizen_registry(kind).said
+    assert guardianCitizen.sad['r'] == CITIZEN_RULES_SAID
+    assert guardianCitizen.said == "EPA-I6kmtswtU_Zgvy1Btlp3Hh8e_llzuMjy3pbD_mpZ"
+    assert_acdc_schema_valid(guardianCitizen)
+
+    # (2) Guardian as Guardian: State -> Bob, the ward named in the ATTRIBUTE block
+    # (Sam's placement), one E1E edge to (1).
+    assert guardian.sad['i'] == STATE
+    assert guardian.iseaid == BOB
+    assert guardian.sad['a']['ward'] == CARA         # the divergence, made concrete
+    assert guardian.sad['a']['basis'] == "custodialParent"
+    assert guardian.sad['a']['scope'] == ["digitalIdentity"]
+    assert guardian.sad['rd'] == _guardian_registry(kind).said
+    assert guardian.sad['r'] == GUARDIAN_RULES_SAID
+    assert guardian.sad['e']['citizen']['n'] == guardianCitizen.said
+    assert guardian.sad['e']['citizen']['o'] == 'E1E'
+    assert guardian.said == "EEFqTgzTDdysCOKfIqRtIzTWYhKkHov16QKXmI0R0BbM"
+    assert_acdc_schema_valid(guardian)
+
+    # (3) Ward as Citizen Ward: State -> Cara, and its edge is what declares that this
+    # citizen credential is ENCUMBERED -- a verifier reading only Cara's credential
+    # learns a guardianship stands over her identity.
+    assert wardCitizen.sad['i'] == STATE
+    assert wardCitizen.iseaid == CARA
+    assert wardCitizen.sad['rd'] == _citizen_registry(kind).said    # same State registry
+    assert wardCitizen.sad['r'] == WARD_RULES_SAID
+    assert wardCitizen.sad['e']['guardian']['n'] == guardian.said
+    assert wardCitizen.sad['e']['guardian']['o'] == 'NI2I'
+    assert wardCitizen.said == "EI8xD7zuclwId0GunRi2e9q92K1oXuGfSo-HwaXaQOAQ"
+    assert_acdc_schema_valid(wardCitizen)
+
+    # (4) Ward AuthZ Social: BOB -> Cara, in BOB's own registry, two edges.
+    assert wardAuthz.sad['i'] == BOB                 # NOT the State
+    assert wardAuthz.iseaid == CARA
+    assert wardAuthz.sad['rd'] == _authz_registry(kind).said
+    assert wardAuthz.sad['rd'] != guardian.sad['rd']   # the guardian's own lifecycle
+    assert wardAuthz.sad['r'] == AUTHZ_RULES_SAID
+    assert wardAuthz.sad['e']['authority']['n'] == guardian.said
+    assert wardAuthz.sad['e']['authority']['o'] == 'I2I'
+    assert wardAuthz.sad['e']['subject']['n'] == wardCitizen.said
+    assert wardAuthz.sad['e']['subject']['o'] == 'E1E'
+    assert wardAuthz.said == "EDccew0We_pDxhtHrEOQcP4DIIBeteqZhaokGb7kXtNi"
+    authzSchema = assert_acdc_schema_valid(wardAuthz)
+
+    # The payload rides in the attribute block, reached only through the seam so the
+    # assertions survive a syntax change (#1550: "The syntax TBD").
+    assert _authz_capabilities(wardAuthz.sad['a']['authz']) == {"read", "post",
+                                                                "message"}
+
+    # A private ACDC: the compact and expanded forms share one SAID, so a ward can hand
+    # over the compact form and expand only what a verifier has agreed to receive.
+    compact = _ward_authz(kind, guardian=guardian, wardCitizen=wardCitizen,
+                          compactify=True)
+    assert compact.said == wardAuthz.said
+    assert isinstance(wardAuthz.sad['e'], dict)      # sections inline...
+    assert isinstance(compact.sad['e'], str)         # ...vs collapsed to a SAID
+    assert_acdc_schema_valid(compact, schema=authzSchema)
+
+    # --- Schema teeth. ---
+    # A capability outside the vocabulary is rejected in the AuthZ payload...
+    badCap = json.loads(json.dumps(wardAuthz.sad))
+    badCap["a"]["authz"]["rc"]["social_feed"] = ["exfiltrate"]
+    with pytest.raises(ValidationError):
+        Draft202012Validator(authzSchema).validate(badCap)
+    # ...and an AuthZ credential with no resource routes at all is rejected, so a
+    # payload cannot be vacuously "valid" by granting nothing.
+    emptyRc = json.loads(json.dumps(wardAuthz.sad))
+    emptyRc['a']['authz']['rc'] = {}
+    with pytest.raises(ValidationError):
+        Draft202012Validator(authzSchema).validate(emptyRc)
+    # A slash-separated resource route -- the obvious way to write one, and the way the
+    # EVAC sketch reads -- is rejected, because as a map LABEL it is outside CESR's
+    # strict field-label grammar and would raise SerializeError on the native-CESR wire
+    # rather than merely validating oddly. The schema catches it at authoring time.
+    slashRoute = json.loads(json.dumps(wardAuthz.sad))
+    slashRoute['a']['authz']['rc']["social/store"] = ["read"]
+    with pytest.raises(ValidationError):
+        Draft202012Validator(authzSchema).validate(slashRoute)
+
+    guardianSchema = assert_acdc_schema_valid(guardian)
+    emptyPowers = json.loads(json.dumps(guardian.sad))
+    emptyPowers['a']['powers'] = []
+    with pytest.raises(ValidationError):
+        Draft202012Validator(guardianSchema).validate(emptyPowers)
+    # The ward's AID is REQUIRED in the attribute block on Sam's placement, so dropping
+    # it fails validation -- the divergence is enforced, not merely described.
+    noWard = json.loads(json.dumps(guardian.sad))
+    del noWard['a']['ward']
+    with pytest.raises(ValidationError):
+        Draft202012Validator(guardianSchema).validate(noWard)
+
+    # A ward citizen credential without its encumbrance edge is rejected: the schema is
+    # what makes "this identity is under guardianship" non-optional.
+    wardSchema = assert_acdc_schema_valid(wardCitizen)
+    noEncumbrance = json.loads(json.dumps(wardCitizen.sad))
+    noEncumbrance['e'] = {"d": wardCitizen.sad['e']['d']}
+    with pytest.raises(ValidationError):
+        Draft202012Validator(wardSchema).validate(noEncumbrance)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: the binding, the operator negatives, and the attenuation negative.
+# ---------------------------------------------------------------------------
+def test_wardauthz_chain_and_negatives_JSON():
+    """Phase 3: _verify_authz_chain holds, and each way of breaking it is caught.
+
+    The positive case first: the honest four-credential graph satisfies all seven checks
+    in _verify_authz_chain. Then the three families of negative:
+
+      * Operator negatives (schema-level). Each of the four edges has its operator
+        pinned by a const, so relabeling any one of them fails wire validation. The two
+        E1E edges get an extra assertion apiece showing WHY the pin matters: the
+        delegative I2I does not merely under-specify those relations, it would reject
+        them, because in both cases issuer(near) != issuee(far).
+      * Correspondence negatives (binding-level). A guardianship over a DIFFERENT ward,
+        and an authorization whose authority edge points at a guardianship Bob does not
+        hold, are both well-formed and both refused.
+      * The attenuation negative, which is the one that earns its place here: a guardian
+        cannot delegate more than he holds. An AuthZ credential granting 'purchase' --
+        a capability in the vocabulary but NOT in the guardianship's powers -- is fully
+        schema-valid, and is refused by the binding. That is the point: over-reach is a
+        relational property between two credentials, so no amount of schema authoring on
+        the AuthZ credential alone can catch it.
+    """
+    kind = Kinds.json
+    guardianCitizen, guardian, wardCitizen, wardAuthz = _credential_graph(kind)
+
+    # The honest graph binds.
+    assert _verify_authz_chain(wardAuthz, guardian, wardCitizen, guardianCitizen)
+
+    # --- Operator negatives (schema): a mislabeled operator never reaches a verifier. ---
+    authzSchema = assert_acdc_schema_valid(wardAuthz)
+    swapped = json.loads(json.dumps(wardAuthz.sad))
+    swapped['e']['authority']['o'] = 'NI2I'          # authority downgraded to a reference
+    with pytest.raises(ValidationError):
+        Draft202012Validator(authzSchema).validate(swapped)
+    coerced = json.loads(json.dumps(wardAuthz.sad))
+    coerced['e']['subject']['o'] = 'I2I'             # identity edge relabeled delegative
+    with pytest.raises(ValidationError):
+        Draft202012Validator(authzSchema).validate(coerced)
+
+    guardianSchema = assert_acdc_schema_valid(guardian)
+    badCitizenEdge = json.loads(json.dumps(guardian.sad))
+    badCitizenEdge['e']['citizen']['o'] = 'I2I'
+    with pytest.raises(ValidationError):
+        Draft202012Validator(guardianSchema).validate(badCitizenEdge)
+
+    wardSchema = assert_acdc_schema_valid(wardCitizen)
+    badEncumbranceEdge = json.loads(json.dumps(wardCitizen.sad))
+    badEncumbranceEdge['e']['guardian']['o'] = 'E1E'   # subjects differ: not an identity
+    with pytest.raises(ValidationError):
+        Draft202012Validator(wardSchema).validate(badEncumbranceEdge)
+
+    # WHY the E1E pins matter: on both identity edges the delegative I2I would REJECT,
+    # not merely under-specify. A pre-#1527 verifier that coerces an unknown operator to
+    # I2I for a targeted far node therefore refuses this graph outright.
+    assert not _i2i_holds(wardAuthz, wardCitizen)      # Bob != Cara
+    assert not _i2i_holds(guardian, guardianCitizen)   # the State != Bob
+    # ...while the one genuine I2I edge does hold.
+    assert _i2i_holds(wardAuthz, guardian)             # Bob == Bob
+
+    # --- Correspondence negatives (binding). ---
+    # (a) A guardianship over a different ward. Every edge is well-formed and every
+    # operator correct; check (5) fails, because the authority is over somebody else.
+    otherGuardianAttr = dict(_guardian_attr(), ward=SOCIAL)
+    _, ggSchema = _saidify_schema(dict(GUARDIAN_SCHEMA_MAD), kind=kind)
+    otherGuardian = acdcmap(israid=STATE, uuid=NONCES[N_GG_ACDC],
+                            regid=_guardian_registry(kind).said, schema=ggSchema,
+                            attribute=otherGuardianAttr, iseaid=BOB,
+                            edge=dict(guardian.sad['e']), rule=GUARDIAN_RULES_SAID,
+                            kind=kind)
+    assert_acdc_schema_valid(otherGuardian)            # well-formed...
+    with pytest.raises(AssertionError):                # ...and refused
+        _verify_authz_chain(wardAuthz, otherGuardian, wardCitizen, guardianCitizen)
+
+    # (b) An authority edge pointing at a guardianship Bob is not the issuee of. Here the
+    # far node is the ward's own citizen credential (issuee Cara), so check (1)'s
+    # same-holder constraint fails.
+    with pytest.raises(AssertionError):
+        _verify_authz_chain(wardAuthz, wardCitizen, wardCitizen, guardianCitizen)
+
+    # --- The attenuation negative: a guardian cannot delegate more than he holds. ---
+    overreach = dict(_authz_block())
+    overreach['rc'] = dict(overreach['rc'], **{"social_store": ["purchase"]})
+    greedy = _ward_authz(kind, guardian=guardian, wardCitizen=wardCitizen,
+                         authz=overreach)
+    # It is entirely schema-valid: 'purchase' is in the capability vocabulary, and the
+    # AuthZ credential has no way to know what its issuer holds.
+    assert_acdc_schema_valid(greedy)
+    assert "purchase" in _authz_capabilities(greedy.sad['a']['authz'])
+    assert "purchase" not in guardian.sad['a']['powers']
+    # The binding refuses it: check (6) compares the two credentials.
+    with pytest.raises(AssertionError):
+        _verify_authz_chain(greedy, guardian, wardCitizen, guardianCitizen)
+    # And the same over-reaching payload becomes legitimate the moment the State
+    # recognizes the broader power -- which is the proof that the check is about the
+    # RELATION between the two credentials and not about the payload's contents.
+    broaderGuardian = _guardian_credential(
+        kind, guardianCitizen=guardianCitizen,
+        powers=["read", "post", "message", "profile", "configure", "purchase"])
+    broaderAuthz = _ward_authz(kind, guardian=broaderGuardian,
+                               wardCitizen=_ward_citizen(kind, guardian=broaderGuardian),
+                               authz=overreach)
+    assert _verify_authz_chain(broaderAuthz, broaderGuardian,
+                               _ward_citizen(kind, guardian=broaderGuardian),
+                               guardianCitizen)
+
+    # Scope, check (7): an act outside the coarse statutory scope is refused before the
+    # fine-grained capabilities are consulted at all.
+    with pytest.raises(AssertionError):
+        _verify_authz_chain(wardAuthz, guardian, wardCitizen, guardianCitizen,
+                            scope="healthCare")
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Cara presents the AuthZ credential herself, over IPEX.
+# ---------------------------------------------------------------------------
+def _ward_id_disclosure(wardCitizen, kind):
+    """Cara's minimal disclosure of her citizen credential: issuee only.
+
+    The platform needs to BIND the ward -- to see that the AuthZ credential's issuee and
+    the citizen credential's issuee are the same person -- not to read her name, her
+    birthdate or where she lives. The citizen credential is attributive, so disclosure
+    is by compaction: each nested block collapses to its bare SAID and the mix recomputes
+    to the same committed section SAID.
+    """
+    compactor = Compactor(mad=dict(wardCitizen.sad['a']), makify=True, kind=kind)
     compactor.compact()
     compactor.expand(greedy=True)          # populates .partials (incl. the compact one)
     return dict(compactor.partials[('',)].mad)
-
-
-def _age_disclosure(ageAggor):
-    """Mia's selective disclosure of the age credential: reveal the issuee + the
-    over-13 flag (False), withhold every other threshold as a bare SAID.
-
-    The store learns she is under 13, which is the fact that fixes her 13-76 age category,
-    and learns neither her birthdate nor her exact age. It does
-    NOT learn which other thresholds this credential carries, though it can infer their
-    values by monotonicity -- see _age_ael. The disclosure verifies against the committed
-    AGID.
-    """
-    disclosed, _ = ageAggor.disclose(indices=[AGE_ISSUEE, AGE_OVER13])
-    return disclosed
 
 
 def _committed_a_said(acdc, kind):
@@ -736,428 +1197,34 @@ def _committed_a_said(acdc, kind):
     return compactor.said
 
 
-def _birth_certificate(kind):
-    """The authorizing instrument: a minimal birth-certificate credential (DGO -> Mia)
-    naming Bob as parent and Mia as child. The guardian credential's authorization edge
-    points here, grounding a custodial-parent guardianship in a verifiable instrument."""
-    regDgo = regcept(israid=DGO, uuid=NONCES[N_REG_DGO], stamp=REG_DGO_STAMP, kind=kind)
-    _, bcSchema = _saidify_schema(dict(BIRTHCERT_SCHEMA_MAD), kind=kind)
-    attribute = dict(d='', u=NONCES[N_BC_A], child=MIA, parent=BOB)
-    return acdcmap(israid=DGO, uuid=NONCES[N_BC_ACDC], regid=regDgo.said,
-                   schema=bcSchema, attribute=attribute, iseaid=MIA, kind=kind)
+def test_wardauthz_presentation_JSON():
+    """Phase 4: the ward presents her own authorization -- a self-presentation.
 
+    Cara walks up to the platform holding a credential issued TO her, and presents it
+    herself. Bob is not in the exchange at all: he is a node in the DAG, not a party to
+    the conversation. That is the whole difference from
+    tests/acdc/test_guardianship_presentation.py, where the ward is too young to hold her
+    own keys, so the guardian is the discloser and the ward never speaks.
 
-def _guardian_registry(kind):
-    """The guardianship registry inception (rip event). Guardianship terminates
-    dynamically, so the guardian credential is bound to a registry a verifier checks;
-    Phase 4 blinds its per-event state so status checks leak no correlatable log."""
-    return regcept(israid=DGO, uuid=NONCES[N_REG_GUARDIAN], stamp=REG_GUARDIAN_STAMP,
-                   kind=kind)
-
-
-def _guardian_attr():
-    """Bob's guardian-credential attribute section (a fresh map each call).
-
-    Disclosed whole (flat, not selectively disclosable): a verifier needs basis + scope
-    + validity together. basis = custodialParent (inherent parental right, no court);
-    scope limited to digitalIdentity (managing/presenting the ward's digital identity);
-    recognition names the inherent-parental authority type and Utah as appointing state.
-
-    DATE HYGIENE, and it is not cosmetic. Because this credential is disclosed WHOLE, every
-    date in it reaches the verifier, and a date about the guardianship can silently be a date
-    about the WARD. An earlier revision set effectiveDate to the date the parental right
-    arose, which for a custodial parent IS the ward's birthdate -- so the example handed the
-    service Mia's exact date of birth in the same exchange where it claims the service gets
-    only an under-13 predicate. effectiveDate is now the date the State recorded the
-    relationship, which is what a verifier actually needs (when this authority became
-    checkable) and is not derived from the ward at all.
-
-    The remaining leak is structural and is asserted rather than hidden. A minor
-    guardianship expires at majority, so expiryDate is Mia's 18th birthday and the service
-    can subtract 18 to recover her birth month and day. Nothing in the represented-
-    presentation shape fixes that: the date is load-bearing for the verifier (is this
-    authority still valid?) and derived from the ward. Mitigations are deployment-level --
-    coarsen to the month or year of majority, or move validity entirely into the registry so
-    no date ships at all. test_guardian_authority_credential_JSON asserts the residual is
-    present so it cannot regress into being forgotten, and the sibling module carries the
-    same residual on its own guardianship credential.
-    """
-    return dict(d='', u=NONCES[N_G_A],
-                basis="custodialParent",
-                scope=["digitalIdentity"],
-                fiduciary="bestInterest",
-                residualParentalRights=True,
-                recognition=dict(authorityType="inherentParental",
-                                 appointingState="US-UT",
-                                 registrationStatus="native"),
-                effectiveDate="2020-04-02",    # State recorded it, NOT Mia's birthdate
-                expiryDate="2038-03-15")       # majority; leaks her birth month/day, see above
-
-
-def _guardian_credential(kind, sedi=None, birthCert=None, reg=None):
-    """Bob's SEDI digital-guardian credential (DGO -> Bob), registry-bound, schema-valid.
-
-    HELD BY BOB (issuee), naming Mia ONLY by the subject edge (holder != subject). The
-    subject edge is NI2I -- Bob is not Mia's issuee, so it is a reference, not a
-    same-holder delegation. The authorization edge (NI2I) points at the birth
-    certificate that evidences the parental right. Disclosed whole. The Rules section
-    ('r') references the SEDI guardianship governance framework by SAID.
-    """
-    if sedi is None:
-        sedi, _, _ = _ward_credentials(kind)
-    if birthCert is None:
-        birthCert = _birth_certificate(kind)
-    if reg is None:
-        reg = _guardian_registry(kind)
-    _, schema = _saidify_schema(dict(GUARDIAN_SCHEMA_MAD), kind=kind)
-    edge = dict(d='', u=NONCES[N_G_E],
-                subject=dict(d='', u=NONCES[N_G_E_SUBJ], n=sedi.said,
-                             s=sedi.sad['s']['$id'], o='NI2I'),
-                authorization=dict(d='', u=NONCES[N_G_E_AUTH], n=birthCert.said,
-                                   s=birthCert.sad['s']['$id'], o='NI2I'))
-    return acdcmap(israid=DGO, uuid=NONCES[N_G_ACDC], regid=reg.said,
-                   schema=schema, attribute=_guardian_attr(), iseaid=BOB,
-                   edge=edge, rule=GUARDIAN_RULES_SAID, kind=kind)
-
-
-# ---------------------------------------------------------------------------
-# Phase 1: the ward's two source credentials, each with the disclosure it fits.
-# ---------------------------------------------------------------------------
-def test_ward_credentials_and_graduated_disclosure_JSON():
-    """Phase 1: Mia's two source credentials and the E1E identity edge between them.
-
-    Mia holds two ACDCs under one holder AID (MIA), each registry-bound and validated
-    against a purpose-authored JSON Schema, each using the disclosure mechanism that
-    fits its data:
-
-      * sedi-id -- issued by the DGO as an ATTRIBUTIVE ('acm') identity credential; the
-        issuee is a.i = MIA and each attribute is an individually-blinded nested block.
-      * age -- issued by the endorser as an AGGREGATIVE ('acg') credential: an array of
-        boolean age-threshold flags (issuee at A[1].i = MIA), chained to sedi-id by an
-        E1E identity edge (same subject, issuer != issuee).
-
-    The load-bearing claims: the E1E edge verifies (near issuee == far issuee) where a
-    coerce-to-I2I verifier would reject it; a guardian can later disclose the under-13
-    predicate while withholding the birthdate and every other threshold label; and both
-    disclosures are tamper-evident.
+    The exchange is gated: apply, offer, agree, grant, admit, with the ward's citizen
+    attributes crossing the wire only after the platform has signed an agree, and even
+    then only as bare SAIDs -- the platform learns that Cara is the subject of a
+    state-endorsed citizen credential under guardianship, and learns her authorized
+    routes and capabilities, and learns nothing else about her.
     """
     kind = Kinds.json
-    sedi, age, ageAggor = _ward_credentials(kind)
+    guardianCitizen, guardian, wardCitizen, wardAuthz = _credential_graph(kind)
+    assert _verify_authz_chain(wardAuthz, guardian, wardCitizen, guardianCitizen)
 
-    # sedi-id: ATTRIBUTIVE identity credential, registry-bound, schema-valid.
-    assert sedi.ilk == Ilks.acm
-    assert sedi.sad['i'] == DGO                     # issued by the DGO (State)
-    assert sedi.sad['rd'] == "ECwS8218O0JA_faclrOZSOL8vBzCOHY9dWPNBtrgcXwz"  # DGO registry
-    assert sedi.sad['a']['i'] == MIA                # attributive issuee (the ward)
-    assert sedi.iseaid == MIA
-    assert sedi.said == "ECW-D3niTR0H4A4IjU52PMUtaNxIBvx-Ttpvsf9HXVK3"
-    assert_acdc_schema_valid(sedi)
-
-    # age: AGGREGATIVE boolean-flag credential, registry-bound, schema-valid.
-    assert age.ilk == Ilks.acg
-    assert age.sad['i'] == ENDORSER                 # issued by the endorser
-    assert age.sad['rd'] == "EEX6XlR5J5fSs7CfXuxv-jPI28OKpkHYkwGgpBEA_RdW"  # endorser registry
-    assert age.sad['A'][AGE_ISSUEE]['i'] == MIA     # aggregative issuee (the ward)
-    assert age.iseaid == MIA
-    assert age.said == "ECXgaqGNlsllMnqOTSdis9ZE9a9lhRHGzY8cCq07eTeN"
-    # Mia is 6, so every flag is False -- the disclosed over-13 flag is the one the
-    # store asks for, and by monotonicity it settles all the others.
-    assert age.sad['A'][AGE_OVER13]['over13'] is False                   # under 13
-    assert not any(el[f"over{n}"] for n, el
-                   in zip(AGE_THRESHOLDS, age.sad['A'][AGE_FLAG0:]))
-    ageSchema = assert_acdc_schema_valid(age)
-
-    # The E1E identity edge binds age to sedi-id as the SAME subject (Mia), though the
-    # DGO issues one and the endorser the other (issuer != issuee) -- the case E1E
-    # exists for and the delegative I2I rejects.
-    assert age.sad['e']['identity']['o'] == 'E1E'
-    assert _verify_identity_edge(age, sedi)
-
-    # Schema teeth: a non-boolean threshold flag is rejected; a missing E1E edge is
-    # rejected (the identity relation is schema-required, not incidental).
-    badA = list(age.sad['A'])
-    badA[AGE_OVER13] = dict(badA[AGE_OVER13], over13="yes")
-    with pytest.raises(ValidationError):
-        Draft202012Validator(ageSchema).validate(dict(age.sad, A=badA))
-    with pytest.raises(ValidationError):
-        Draft202012Validator(ageSchema).validate(dict(age.sad, e={"d": age.sad['e']['d']}))
-
-    # --- The guardian's minimal disclosure of the ward's sedi-id: issuee only. ---
-    idDisc = _ward_id_disclosure(sedi, kind)
-    assert idDisc['i'] == MIA                              # issuee present (binds the ward)
-    assert isinstance(idDisc['dob'], str)                  # birthdate withheld (bare SAID)
-    assert isinstance(idDisc['name'], str)                 # name withheld
-    assert "2020-03-15" not in json.dumps(idDisc)          # birthdate never on the wire
-    assert "Mia Carver" not in json.dumps(idDisc)          # name never on the wire
-    committedA = _committed_a_said(sedi, kind)
-    check = Compactor(mad=dict(idDisc, d=''), makify=True, kind=kind)
-    check.compact()
-    assert check.said == committedA                        # disclosure belongs to sedi-id
-
-    # --- Selective disclosure of age: reveal over13 + issuee, hide the rest. ---
-    ageDisc = _age_disclosure(ageAggor)
-    assert ageDisc[0] == ageAggor.agid                     # AGID anchor
-    assert ageDisc[AGE_ISSUEE]['i'] == MIA                 # issuee revealed
-    assert ageDisc[AGE_OVER13]['over13'] is False          # under-13 revealed
-    over18Pos = AGE_FLAG0 + AGE_THRESHOLDS.index(18)
-    assert isinstance(ageDisc[over18Pos], str)             # over-18 flag withheld (SAID)
-    # Privacy: no other threshold block crosses the wire, so the service cannot tell
-    # which other thresholds this credential even carries. It CAN infer their values by
-    # monotonicity (see _age_ael); what it cannot recover is the birthdate or the age.
-    assert "over18" not in json.dumps(ageDisc)
-    assert "over21" not in json.dumps(ageDisc)
-    assert "over65" not in json.dumps(ageDisc)
-    assert Aggor.verifyDisclosure(ageDisc, kind=kind)
-    # Tamper evidence: altering the revealed flag breaks AGID verification.
-    tampered = list(ageDisc)
-    tampered[AGE_OVER13] = dict(ageDisc[AGE_OVER13], over13=True)
-    assert not Aggor.verifyDisclosure(tampered, kind=kind)
-
-
-# ---------------------------------------------------------------------------
-# Phase 2: Bob's SEDI digital-guardian credential -- holder != subject.
-# ---------------------------------------------------------------------------
-def test_guardian_authority_credential_JSON():
-    """Phase 2: Bob's guardian credential names Mia only by edge (holder != subject).
-
-    The SEDI digital-guardian credential is HELD BY THE GUARDIAN (issuee = Bob) and
-    names the ward ONLY by the subject edge (-> Mia's sedi-id). This is the invariant
-    that keeps guardianship transparent representation, never impersonation: a verifier
-    can always tell a guardian -- not the ward -- is acting.
-
-    Asserted here: the issuee is Bob and NOT Mia (holder != subject, structurally); the
-    subject edge is NI2I (a reference, not a same-holder delegation -- Bob is not Mia's
-    issuee) and points at Mia's sedi-id; the authority is grounded in an authorizing
-    instrument (the birth certificate) via the authorization edge; the credential is
-    registry-bound (dynamic termination) and disclosed whole; and the schema enforces
-    the statutory shape (a bad basis, an empty scope list, a bad recognition block, or
-    an edge other than subject/authorization are rejected).
-    """
-    kind = Kinds.json
-    sedi, _, _ = _ward_credentials(kind)
-    birthCert = _birth_certificate(kind)
-    reg = _guardian_registry(kind)
-    guardian = _guardian_credential(kind, sedi=sedi, birthCert=birthCert, reg=reg)
-
-    assert guardian.ilk == Ilks.acm
-    assert guardian.sad['i'] == DGO                 # issued by the DGO
-    assert guardian.sad['a']['i'] == BOB            # HELD BY THE GUARDIAN (issuee = Bob)
-    assert guardian.iseaid == BOB
-    # holder != subject: the credential's issuee is Bob, and the ward is Mia, named
-    # only by edge. This is the load-bearing invariant, asserted structurally.
-    assert guardian.iseaid != sedi.iseaid           # Bob is not the ward
-    assert guardian.said == "EK_489biyH5Mvt_VIpCsObT3fe7jSVptG3i5OrlEp5xA"
-    assert guardian.sad['e']['subject']['n'] == sedi.said       # ward named by edge
-    assert guardian.sad['e']['subject']['o'] == 'NI2I'          # reference, not delegation
-    assert guardian.sad['e']['authorization']['n'] == birthCert.said   # authority grounded
-    assert birthCert.said == "EOh4FrcZ1XkRkg8HGjhDsoInt35bTb0ZuvfchkWl6uql"  # the instrument
-    # Registry-bound (dynamic termination) and disclosed whole (flat attribute section).
-    assert reg.said == "EIilAhmBAyNgcoAMe1YLBLtu5eu1_j2jDtZZxV_9IN5B"        # guardianship reg
-    assert guardian.sad['rd'] == reg.said
-    assert guardian.sad['a']['basis'] == "custodialParent"
-    assert guardian.sad['a']['scope'] == ["digitalIdentity"]
-    assert guardian.sad['a']['recognition']['authorityType'] == "inherentParental"
-
-    # --- Date hygiene in a WHOLE-disclosed authority credential (see _guardian_attr). ---
-    # effectiveDate MUST NOT be the ward's birthdate: for a custodial parent the date the
-    # right arose is exactly her DOB, and this credential ships entire, so setting it that
-    # way would hand the service the birthdate the whole example exists to withhold.
-    assert guardian.sad['a']['effectiveDate'] != WARD_DOB
-    # The residual, asserted PRESENT rather than hidden: a minor guardianship expires at
-    # majority, so expiryDate is derived from the ward and leaks her birth month and day.
-    # Deployment-level mitigations only -- coarsen the date, or carry validity solely in
-    # the registry. This assertion exists so the leak cannot be quietly forgotten.
-    assert guardian.sad['a']['expiryDate'] == "2038-03-15"
-    assert guardian.sad['a']['expiryDate'][5:] == WARD_DOB[5:]      # month/day recoverable
-
-    # The Rules section references the SEDI guardianship governance framework by SAID.
-    assert guardian.sad['r'] == GUARDIAN_RULES_SAID
-    schema = assert_acdc_schema_valid(guardian)
-
-    # Schema teeth: a bad basis, an empty scope list, and a bad recognition authority
-    # type are each rejected -- the statutory shape is machine-checked.
-    badBasis = json.loads(json.dumps(guardian.sad))
-    badBasis['a']['basis'] = "selfAppointed"
-    with pytest.raises(ValidationError):
-        Draft202012Validator(schema).validate(badBasis)
-    emptyScope = json.loads(json.dumps(guardian.sad))
-    emptyScope['a']['scope'] = []
-    with pytest.raises(ValidationError):
-        Draft202012Validator(schema).validate(emptyScope)
-    badAuth = json.loads(json.dumps(guardian.sad))
-    badAuth['a']['recognition']['authorityType'] = "vibes"
-    with pytest.raises(ValidationError):
-        Draft202012Validator(schema).validate(badAuth)
-    # The edge section is closed at subject + authorization: any other edge (here the
-    # 'powers' edge an external delegated-authority credential would have hung off, which
-    # is exactly the credential the sibling module makes its origin) is rejected, so the
-    # guardian credential carries no hook to one.
-    extraEdge = json.loads(json.dumps(guardian.sad))
-    extraEdge['e']['powers'] = dict(d='', n=sedi.said, s=sedi.sad['s']['$id'], o='NI2I')
-    with pytest.raises(ValidationError):
-        Draft202012Validator(schema).validate(extraEdge)
-
-
-PRESENT_STAMP = "2027-06-15T15:18:00.000000+00:00"
-
-
-def _represented_presentation(kind, guardian, sedi, age, compactify=False):
-    """Bob's represented-presentation ACDC to the service (helper for Phase 3+).
-
-    Issuer = Bob (Discloser/guardian), Issuee = the service (Disclosee). It carries no
-    ward PII in its own attributes -- just the purpose and time -- and references the
-    credential graph by edge:
-      authority (I2I)  -> Bob's guardian credential  (proves Bob holds the authority),
-      wardId   (NI2I)  -> Mia's sedi-id             (Bob is NOT the subject),
-      wardAge  (NI2I)  -> Mia's sedi-age            (Bob is NOT the subject).
-    Deliberately NOT registry-bound (no 'rd'): a one-time presentation is not logged.
-    The Rules section references the guardianship governance framework by SAID.
-    """
-    _, schema = _saidify_schema(dict(PRESENTATION_SCHEMA_MAD), kind=kind)
-    attribute = dict(d='', u=NONCES[N_P_A], i=STORE,
-                     purpose="Consent to an app download for a ward in the child age "
-                             "category, per Utah Code 13-76-201(1)(b).",
-                     occurredAt=PRESENT_STAMP)
-    edge = dict(d='', u=NONCES[N_P_E],
-                authority=dict(d='', u=NONCES[N_P_E_AUTH], n=guardian.said,
-                               s=guardian.sad['s']['$id'], o='I2I'),
-                wardId=dict(d='', u=NONCES[N_P_E_ID], n=sedi.said,
-                            s=sedi.sad['s']['$id'], o='NI2I'),
-                wardAge=dict(d='', u=NONCES[N_P_E_AGE], n=age.said,
-                             s=age.sad['s']['$id'], o='NI2I'))
-    return acdcmap(israid=BOB, uuid=NONCES[N_P_ACDC], schema=schema,
-                   attribute=attribute, edge=edge, rule=GUARDIAN_RULES_SAID,
-                   kind=kind, compactify=compactify)
-
-
-def _verify_representation(presentation, guardian, wardSedi, wardAge,
-                           scope="digitalIdentity"):
-    """The verifier's binding for a represented presentation -- the security property.
-
-    A represented presentation authorizes disclosure only if ALL of these hold; each is
-    a distinct link in the accountability chain. It is THIS app-layer binding -- not the
-    NI2I operator, which is relationally inert -- that enforces holder != subject; the
-    schema const-pins only reject the mis-labeled impersonation SHAPE at validation.
-    Returns True or raises AssertionError. (Two checks a complete verifier adds are out
-    of scope at this altitude: the guardian issuer's trust-root/authority-competence and
-    each edge's 's' far-node schema constraint -- see the module docstring.)
-
-      1. Authority (I2I): the presentation's issuer holds the authority credential its
-         'authority' edge points at -- issuer(presentation) == issuee(guardian), the
-         I2I same-holder constraint (resolved via SerderACDC.iseaid).
-      2. Subject binding: the guardian credential's own subject edge names THIS ward's
-         sedi-id -- so the authority is over the ward actually being presented, not some
-         other ward.
-      3. Ward data (NI2I), holder != subject: the ward-data edges are NI2I and the
-         presenter is NOT the ward's issuee. An I2I ward edge would demand
-         presenter == subject (impersonation); the schema pins these to NI2I, and this
-         asserts the invariant structurally.
-      4. Scope: the requested action falls within the guardian's 'scope' (Utah prefers
-         LIMITED guardianship, so a verifier MUST check the specific act against scope).
-      5. Identity (E1E): the disclosed age flag is the ward's own -- the age credential
-         and the sedi-id name the same subject (via _verify_identity_edge).
-
-    A complete verifier performs a 6th check -- registry status -- exercised in Phase 4:
-    guardianship terminates dynamically, so the guardian credential's blindable registry
-    must show it currently issued, not revoked.
-    """
-    e = presentation.sad['e']
-    # (1) authority I2I: presenter holds the authority.
-    assert e['authority']['o'] == 'I2I'
-    assert e['authority']['n'] == guardian.said
-    assert presentation.sad['i'] == guardian.iseaid            # issuer == guardian issuee
-    # (2) subject binding: the authority is over THIS ward.
-    assert guardian.sad['e']['subject']['n'] == wardSedi.said
-    # (3) ward data NI2I, holder != subject.
-    assert e['wardId']['o'] == 'NI2I' and e['wardId']['n'] == wardSedi.said
-    assert e['wardAge']['o'] == 'NI2I' and e['wardAge']['n'] == wardAge.said
-    assert presentation.sad['i'] != wardSedi.iseaid            # presenter is not the ward
-    assert presentation.sad['i'] != wardAge.iseaid
-    # (4) scope: requested action within the statutory scope.
-    assert scope in guardian.sad['a']['scope']
-    # (5) identity E1E: the disclosed age flag is the ward's own.
-    assert _verify_identity_edge(wardAge, wardSedi)
-    return True
-
-
-# ---------------------------------------------------------------------------
-# Phase 3: the represented presentation -- guardian mediates, holder != subject.
-# ---------------------------------------------------------------------------
-def test_represented_presentation_JSON():
-    """Phase 3: Bob presents on Mia's behalf; the verifier binds authority to ward.
-
-    Bob issues a represented-presentation ACDC to the service (Issuer = Bob, Issuee =
-    the service). This is the NEW pattern: a presentation whose HOLDER IS NOT THE
-    SUBJECT, distinct from the self-presentation the sibling examples show -- including
-    tests/acdc/test_ward_authz_presentation.py, where a ward old enough to act presents
-    an authorization issued to her, and Bob is a node in the DAG rather than a party to
-    the exchange. Its three edges carry three operators, and the binding
-    (_verify_representation) is the security property: I2I proves Bob holds the
-    authority; NI2I marks the ward's data as someone else's (Bob is not the subject);
-    E1E proves the disclosed age flag is the ward's. The service can therefore tell --
-    and prove later -- that a GUARDIAN, not the child, is acting.
-
-    The load-bearing guardrail is asserted two ways: the schema PINS the ward-data edges
-    to NI2I (an I2I ward edge -- the impersonation shape -- is rejected), and the binding
-    fails if the authority does not actually cover THIS ward. The presentation runs as a
-    gated IPEX exchange so the ward's under-13 disclosure crosses the wire only in the
-    grant, after the service accepts -- and the grant delivers the presentation expanded,
-    with the guardian credential beside it, so the service can run the scope check its
-    own apply asked for rather than being told the answer.
-    """
-    kind = Kinds.json
-    sedi, age, ageAggor = _ward_credentials(kind)
-    guardian = _guardian_credential(kind, sedi=sedi)
-    presentation = _represented_presentation(kind, guardian, sedi, age)
-
-    assert presentation.ilk == Ilks.acm
-    assert presentation.sad['i'] == BOB           # Bob is the Issuer (guardian/Discloser)
-    assert presentation.sad['a']['i'] == STORE    # the store is the Issuee (Disclosee)
-    assert 'rd' not in presentation.sad           # one-time presentation, not logged
-    assert presentation.sad['r'] == GUARDIAN_RULES_SAID   # governance by SAID
-    assert presentation.said == "EKb3szYoKJYQjPr4nPWsz__4nWdCgsy3EmZqTjWYjP6S"
-
-    # The full binding holds for the honest presentation.
-    assert _verify_representation(presentation, guardian, sedi, age)
-    # holder != subject, stated plainly: the presenter is Bob, the subject is Mia.
-    assert presentation.sad['i'] == BOB and sedi.iseaid == MIA
-
-    # Private ACDC: compact and expanded forms share one SAID; the schema enforces the
-    # pinned edge operators.
-    compact = _represented_presentation(kind, guardian, sedi, age, compactify=True)
-    assert compact.said == presentation.said
-    assert isinstance(presentation.sad['e'], dict)     # sections inline...
-    assert isinstance(compact.sad['e'], str)           # ...vs. collapsed to a SAID
-    schema = assert_acdc_schema_valid(presentation)
-    assert_acdc_schema_valid(compact, schema=schema)
-
-    # --- Guardrail 1 (schema): an I2I ward-data edge -- the impersonation shape -- is
-    # rejected. The schema pins wardId/wardAge to const "NI2I". ---
-    impersonation = json.loads(json.dumps(presentation.sad))
-    impersonation['e']['wardId']['o'] = 'I2I'
-    with pytest.raises(ValidationError):
-        Draft202012Validator(schema).validate(impersonation)
-
-    # --- Guardrail 2 (binding): the authority must cover THIS ward. A presentation whose
-    # guardian credential is over a DIFFERENT ward fails point (2), even though every
-    # edge is well-formed. ---
-    otherSediMad = dict(SEDI_SCHEMA_MAD)
-    _, otherSchema = _saidify_schema(otherSediMad, kind=kind)
-    otherWard = acdcmap(israid=DGO, uuid=NONCES[N_SEDI_ACDC], regid=_guardian_registry(kind).said,
-                        schema=otherSchema, attribute=_sedi_attr(), iseaid=STORE, kind=kind)
-    with pytest.raises(AssertionError):
-        _verify_representation(presentation, guardian, otherWard, age)
-
-    # --- The gated IPEX exchange: the ward's age flag crosses only in the grant. ---
-    # 1. apply (service -> Bob): the challenge -- which schemas/fields, and the
-    # governance framework the service will honor (guardian acceptance in scope).
+    # 1. apply (platform -> Cara): the challenge -- which schemas, which fields, and the
+    # governance framework the platform will honor.
     #
     # The field-level ask rides the disclosure-paths `dp` field of the QUERY section
     # `q` (exchange(modifiers=...)), as an ORDERED LIST of (schemaSAID, prefix, [paths])
     # triples -- the construct settled in WebOfTrust/keripy discussion #1549, shared with
-    # tests/acdc/test_cp_disclosure.py and test_bulk_issuance_shared_registry.py.
-    # A dict keyed by schema SAID cannot express a DAG holding two credentials of the
-    # same schema.
+    # tests/acdc/test_cp_disclosure.py, test_bulk_issuance_shared_registry.py and
+    # test_guardianship_presentation.py. A dict keyed by schema SAID cannot express a DAG
+    # holding two credentials of the same schema, which is why the construct is a list.
     #
     # The middle element is a path PREFIX: the DAG-absolute route to the ACDC that the
     # entry's schema SAID names. It is either the empty string or a route that both
@@ -1168,320 +1235,237 @@ def test_represented_presentation_JSON():
     # Every prefix here is EMPTY, which leaves the entry paths ACDC-RELATIVE: with no
     # prefix naming it, an entry's ACDC is identified by the entry's POSITION, so the
     # list runs breadth-first from the origin node and the zeroth entry is the origin.
-    # That breadth-first ordering is required even where a non-empty prefix would make
-    # it technically unnecessary (@SmithSamuelM, #1549). Every node this DAG reaches is
-    # asked for something here, so the list is gapless -- one entry per node, in
-    # breadth-first order -- and each entry's ACDC is unambiguous without restating the
-    # route to it. (The sibling's list is a gapless list's opposite number: nothing is
-    # asked of the guardian's own citizen credential there, so its entries are an ordered
-    # SUBSET, which works only because each entry still names its own schema SAID.)
+    # A '/'-rooted prefix would make the effective paths DAG-ABSOLUTE, and an absolute
+    # path reaching a non-origin ACDC must cross the edge that links it -- the virtual
+    # '_' component, standing for the jump from the near-side edge block to the top level
+    # of the far-side ACDC (#1549). The same request written with non-empty prefixes:
+    #     origin:       "/"                ["i", "a/i", "a/authz"]
+    #     guardianship: "/e/authority/_/"  ["a/i", "a/ward", "a/powers"]
+    #     ward citizen: "/e/subject/_/"    ["a/i"]
     #
-    # A '/'-rooted prefix would make the effective paths DAG-ABSOLUTE, rooted at the
-    # origin node, and an absolute path reaching a non-origin ACDC must cross the edge
-    # that links it -- the virtual '_' component, standing for the jump from the
-    # near-side edge block to the top level of the far-side ACDC (@SmithSamuelM, #1549).
-    # The same request written with non-empty prefixes reads:
-    #     origin:   "/"                 ["i", "a/i"]
-    #     guardian: "/e/authority/_/"   ["a/i", "a/scope"]
-    #     ward id:  "/e/wardId/_/"      ["a/i"]
-    #     ward age: "/e/wardAge/_/"     ["A/i", "A/over13"]
+    # The zeroth entry is the DAG's origin node (#1549). Here the origin is the AuthZ
+    # credential itself -- Cara presents a credential she HOLDS, so unlike the sibling
+    # examples the origin is not an envelope she issues. Its schema is still something
+    # the platform knows in advance, and for a stronger reason than usual: the platform
+    # is the resource the authorization is ABOUT, so the shape of the authorization it
+    # will accept is its own published requirement (@SmithSamuelM, #1542, on the
+    # applicant knowing the origin schema).
     #
-    # A represented presentation is the case that makes the joining paths load-bearing.
-    # The service asks three nodes for an issuee: the guardian credential (a/i -- who is
-    # acting), the ward's sedi-id (a/i -- who is being spoken for) and the ward's age
-    # credential (A/i -- whose fact is being asserted). The last two must MATCH and the
-    # first must DIFFER, which is the holder != subject split expressed in paths. It is
-    # the guardianship edge, not issuee equality, that licenses Bob to speak for Mia --
-    # the exact inverse of the sibling, where the ward presents for herself and the
-    # origin's issuee and the citizen credential's issuee are required to be equal.
-    #
-    # The zeroth entry is the DAG's origin node (#1549): Bob's presentation. Its schema
-    # is governance even though Bob issues it -- "in all of these applications the
-    # Applicant would know the schema of the origin node despite it being a presenter
-    # issued ACDC" (@SmithSamuelM, #1542) -- so the service can name it in a
-    # first-contact apply. It asks the origin only for issuer and issuee, which in a
-    # represented presentation is the first place the holder != subject split shows:
-    # the origin's issuer is Bob, and the ward never appears in it at all.
-    presentSchemaSaid, _ = _saidify_schema(dict(PRESENTATION_SCHEMA_MAD), kind=kind)
-    apply = exchange(sender=STORE, receiver=BOB, route="/ipex/apply",
-                     modifiers=dict(dp=[[presentSchemaSaid, "", ["i", "a/i"]],
-                                        [guardian.sad['s']['$id'], "", ["a/i", "a/scope"]],
-                                        [sedi.sad['s']['$id'], "", ["a/i"]],
-                                        [age.sad['s']['$id'], "", ["A/i", "A/over13"]]]),
-                     attributes=dict(m="Prove a consenting digital guardian and the "
-                                       "ward's age category.",
-                                     g=GUARDIAN_RULES_SAID),
+    # What the platform asks for is exactly the shape of the question it has to answer.
+    # From the origin: who issued this authorization, to whom, and what does it grant.
+    # From the guardianship: who holds it, over which ward, and how far his powers run --
+    # the three fields the attenuation check needs. From the ward's citizen credential:
+    # the issuee alone, which is all that is needed to bind Cara to the authorization.
+    # Guardian-as-Citizen (node 1) is a node in this DAG and carries NO entry, because
+    # nothing is requested from it: the platform has no business knowing Bob's name or
+    # where he lives. Entries are therefore a breadth-first-ordered SUBSET of the DAG,
+    # and each still names its own schema SAID, so a skipped node cannot shift the
+    # meaning of the entries below it. (The sibling's list asks something of every node
+    # its DAG reaches, so it is gapless -- one entry per node. Both are legal; a gap is
+    # only safe because the schema SAID travels with each entry.)
+    authzSchemaSaid, _ = _saidify_schema(dict(AUTHZ_SCHEMA_MAD), kind=kind)
+    apply = exchange(sender=SOCIAL, receiver=CARA, route="/ipex/apply",
+                     modifiers=dict(dp=[[authzSchemaSaid, "",
+                                         ["i", "a/i", "a/authz"]],
+                                        [guardian.sad['s']['$id'], "",
+                                         ["a/i", "a/ward", "a/powers"]],
+                                        [wardCitizen.sad['s']['$id'], "", ["a/i"]]]),
+                     attributes=dict(m="Prove a guardian authorized this minor account "
+                                       "holder's settings, and show the scope.",
+                                     g=AUTHZ_RULES_SAID),
                      stamp=APPLY_STAMP, kind=kind)
-    assert apply.sad['r'] == "/ipex/apply" and apply.sad['i'] == STORE
+    assert apply.sad['r'] == "/ipex/apply" and apply.sad['i'] == SOCIAL
     dp = apply.sad['q']['dp']
-    assert [entry[0] for entry in dp] == [presentSchemaSaid, guardian.sad['s']['$id'],
-                                          sedi.sad['s']['$id'], age.sad['s']['$id']]
-    assert all(len(entry) == 3 for entry in dp)             # (schemaSAID, prefix, [paths])
-    assert [entry[1] for entry in dp] == ["", "", "", ""]   # no prefixes: paths stay relative
-    assert dp[0][2] == ["i", "a/i"]             # origin: who presents, and to whom
-    assert dp[1][2] == ["a/i", "a/scope"]       # attributive guardian cred: who acts, and how far
-    assert dp[2][2] == ["a/i"]                  # ward sedi-id: the binding, nothing more
-    assert dp[3][2] == ["A/i", "A/over13"]      # aggregative ward age cred: whose, and the flag
+    assert [entry[0] for entry in dp] == [authzSchemaSaid, guardian.sad['s']['$id'],
+                                          wardCitizen.sad['s']['$id']]
+    assert all(len(entry) == 3 for entry in dp)       # (schemaSAID, prefix, [paths])
+    assert [entry[1] for entry in dp] == ["", "", ""] # no prefixes: paths stay relative
+    assert dp[0][2] == ["i", "a/i", "a/authz"]        # origin: who granted, to whom, what
+    assert dp[1][2] == ["a/i", "a/ward", "a/powers"]  # guardianship: whose, over whom, how far
+    assert dp[2][2] == ["a/i"]                        # ward citizen: the binding, nothing more
     assert all(not p.startswith("/") and not p.endswith("/")
                for _, _, paths in dp for p in paths)
+    assert authzSchemaSaid == wardAuthz.sad['s']['$id']   # the origin Cara actually holds
+    # The guardian's own citizen credential is a node in the DAG and is asked for
+    # nothing: the platform has no business learning the parent's name or residence.
+    assert guardianCitizen.sad['s']['$id'] not in [entry[0] for entry in dp]
     assert 'disclose' not in apply.sad['a'] and set(apply.sad['a']) == {'m', 'g'}
-    assert apply.said == "EAf0260lVAH8TOx-_J1ClmtgNH2zvzRkGeBTThotr5LG"
+    assert apply.said == "EMeUXBWGbmhe5MvD0DTPD1ckI5MyscpSC92qVzcOJFxk"
 
-    # 2. offer (Bob -> service): commits ONLY to the Discloser's own presentation SAID
-    # and the governance ref, and binds the apply. It deliberately does NOT enumerate the
-    # issuer-committed source-credential SAIDs (guardian/sedi/age): those are issuer
-    # commitments, and attaching them before the service agrees would let a verifier
-    # spurn and walk away with stable ward/guardian correlators, defeating the
-    # metadata-ACDC decorrelation (panel review, PRV-F2). They arrive only post-agree, in
-    # the grant, which delivers the presentation EXPANDED so its edge section is readable.
+    # 2. offer (Cara -> platform): commits ONLY to the SAID of the credential she is
+    # offering and to the governance ref, and binds the apply. It deliberately does NOT
+    # enumerate the issuer-committed source SAIDs (the guardianship, either citizen
+    # credential): those are stable correlators, and attaching them before the platform
+    # agrees would let a platform spurn and walk away with a persistent handle on both
+    # the ward and her parent. They arrive only post-agree, in the grant.
     #
-    # What the one SAID this offer does commit to costs is nothing, and that is a
-    # property of the represented shape rather than of care taken here: the presentation
-    # is minted for this exchange, so a service that spurns holds a digest that will
-    # never be seen again. The sibling cannot say the same -- there the ward offers the
-    # SAID of a durable credential her guardian issued her, which is identical on every
-    # presentation she ever makes, so a spurning platform keeps a usable handle on her.
+    # WHAT WITHHOLDING THEM DOES NOT BUY, and the sibling is the contrast that shows it.
+    # The one SAID this offer must commit to is the AuthZ credential's, and that is a
+    # credential Bob issued and Cara keeps: it is identical on every presentation she
+    # ever makes, so a platform that spurns still walks away with a stable handle on her.
+    # The sibling's origin is an envelope its discloser mints for the exchange, so a spurn
+    # there yields a digest never seen again. Decorrelation of the origin is something the
+    # represented shape gets for free and the ward-presents shape would have to buy -- by
+    # minting a per-exchange presentation ACDC that edges to the durable authorization,
+    # rather than offering the durable authorization itself as this example does.
     # Its query block carries `dp` as an EMPTY list: the offer is SOLICITED (its `p`
     # binds the apply), and an empty `dp` means "the same paths the apply asked for"
-    # (#1549), so Bob restates nothing and the two messages cannot drift.
-    offer = exchange(sender=BOB, receiver=STORE, route="/ipex/offer", prior=apply.said,
+    # (#1549), so Cara restates nothing and the two messages cannot drift.
+    offer = exchange(sender=CARA, receiver=SOCIAL, route="/ipex/offer", prior=apply.said,
                      modifiers=dict(dp=[]),
-                     attributes=dict(acdc=presentation.said,
-                                     governance=GUARDIAN_RULES_SAID),
+                     attributes=dict(acdc=wardAuthz.said, governance=AUTHZ_RULES_SAID),
                      stamp=OFFER_STAMP, kind=kind)
     assert offer.sad['p'] == apply.said
-    assert offer.sad['q']['dp'] == []                         # solicited: "as per the apply"
-    assert offer.said == "EILgCjmGynmKPukEVZM_DQ93C-r2hwwqlwWMVjfdV0Ok"
-    assert presentation.said.encode() in offer.raw            # Discloser's own commitment
-    assert b"Mia Carver" not in offer.raw and b"2020-03-15" not in offer.raw   # no PII
-    # Issuer commitments withheld until after the service agrees (PRV-F2):
-    assert guardian.said.encode() not in offer.raw
-    assert sedi.said.encode() not in offer.raw
-    assert age.said.encode() not in offer.raw
+    assert offer.sad['q']['dp'] == []                  # solicited: "as per the apply"
+    assert offer.said == "EHwBEyvCRbsccjyS_UFNHBYbT7tRq8Z_s4jKD9eSc3LQ"
+    assert wardAuthz.said.encode() in offer.raw        # the discloser's own commitment
+    assert b"Cara Carver" not in offer.raw and b"2009-04-10" not in offer.raw
+    assert guardian.said.encode() not in offer.raw     # issuer commitments withheld...
+    assert wardCitizen.said.encode() not in offer.raw
+    assert guardianCitizen.said.encode() not in offer.raw
 
-    # 3. agree (service -> Bob): acceptance, binding the offer SAID and signed by the
-    # service (via messagize -- the blessed genus-aware attachment path).
-    agree = exchange(sender=STORE, receiver=BOB, route="/ipex/agree", prior=offer.said,
+    # 3. agree (platform -> Cara): acceptance, binding the offer SAID and signed by the
+    # platform (via messagize -- the blessed genus-aware attachment path).
+    agree = exchange(sender=SOCIAL, receiver=CARA, route="/ipex/agree", prior=offer.said,
                      stamp=AGREE_STAMP, kind=kind)
     assert agree.sad['p'] == offer.said
-    assert agree.said == "ELLq3FgVAaIJqsDUSYhGDphTqI2zeIPZgykKvT7NAiad"
-    svcSigner = _SIGNERS[4]                             # the service's establishing key
+    assert agree.said == "EIcfwLEL6zJ_4TegWOY30qOYAwq8jCYKlxhaLzXfH6Ea"
+    svcSigner = _SIGNERS[3]                            # the platform's establishing key
     svcSig = svcSigner.sign(ser=agree.raw, index=0)
     signedAgree = messagize(agree, sigers=[svcSig])
     assert bytes(agree.raw) in signedAgree
     capturedKeyState = Verfer(qb64=svcSigner.verfer.qb64)
     assert capturedKeyState.verify(sig=svcSig.raw, ser=agree.raw)
 
-    # 4. The gate: Bob discloses only when handed a valid, signed, offer-binding agree.
-    # The grant carries the EXPANDED presentation (edges visible, so the service can walk
-    # the chain the apply named), the guardian credential it edges to (disclosed whole,
-    # as an authority credential must be), and the ward's two disclosures. Handing over a
-    # COMPACTIFIED presentation instead would satisfy the offer's promise in form only:
-    # with the edge section collapsed to a bare SAID there is nothing for the service to
-    # expand, and the scope check its own apply asked for could never run.
+    # 4. The gate: Cara discloses only when handed a valid, signed, offer-binding agree.
+    # The grant carries the EXPANDED AuthZ credential (edges visible, so the platform can
+    # walk the chain), the guardianship credential it edges to (disclosed whole, as an
+    # authority credential must be), and her own citizen credential compacted to the
+    # issuee alone.
     def disclose(agreeMsg, sig, keyState):
         if not (agreeMsg.sad['r'] == "/ipex/agree" and agreeMsg.sad['p'] == offer.said
                 and keyState.verify(sig=sig.raw, ser=agreeMsg.raw)):
             return None
-        return exchange(sender=BOB, receiver=STORE, route="/ipex/grant",
+        return exchange(sender=CARA, receiver=SOCIAL, route="/ipex/grant",
                         prior=agreeMsg.said,
-                        attributes=dict(acdc=presentation.sad,
+                        attributes=dict(acdc=wardAuthz.sad,
                                         authority=guardian.sad,
-                                        wardId=_ward_id_disclosure(sedi, kind),
-                                        wardAge=_age_disclosure(ageAggor)),
+                                        subject=_ward_id_disclosure(wardCitizen, kind)),
                         stamp=GRANT_STAMP, kind=kind)
 
     # A forged signature or a spurn (decline) unlocks nothing.
-    assert disclose(agree, _SIGNERS[0].sign(ser=agree.raw, index=0), capturedKeyState) is None
-    spurn = exchange(sender=STORE, receiver=BOB, route="/ipex/spurn", prior=offer.said,
+    assert disclose(agree, _SIGNERS[0].sign(ser=agree.raw, index=0),
+                    capturedKeyState) is None
+    spurn = exchange(sender=SOCIAL, receiver=CARA, route="/ipex/spurn", prior=offer.said,
                      stamp=AGREE_STAMP, kind=kind)
-    assert disclose(spurn, svcSigner.sign(ser=spurn.raw, index=0), capturedKeyState) is None
+    assert disclose(spurn, svcSigner.sign(ser=spurn.raw, index=0),
+                    capturedKeyState) is None
 
-    # The valid agree unlocks the grant; the ward's age flag appears only now, and
-    # the birthdate and every other threshold stay off the wire.
+    # The valid agree unlocks the grant.
     grant = disclose(agree, svcSig, capturedKeyState)
     assert grant is not None and grant.sad['p'] == agree.said
-    assert grant.said == "EFM_0yFcaxXgruwnd-CJ0zoRz2YxzTzLI-AnpYF1lZU7"
-    assert grant.sad['a']['wardAge'][AGE_OVER13]['over13'] is False    # under-13 disclosed
-    assert grant.sad['a']['wardId']['i'] == MIA                       # ward bound (issuee)
-    assert b"2020-03-15" not in grant.raw                             # birthdate withheld
-    assert b"over18" not in grant.raw and b"over21" not in grant.raw   # thresholds withheld
-    # The service receives exactly what its apply asked of the guardian credential --
-    # who is acting, and how far the authority runs -- so it can run the scope check
-    # itself rather than taking the presentation's word for it.
-    assert grant.sad['a']['authority']['a']['i'] == BOB
-    assert grant.sad['a']['authority']['a']['scope'] == ["digitalIdentity"]
-    # The edge section rides expanded, so the source SAIDs the offer withheld are
-    # reachable now and only now -- which is what the offer's comment promises.
-    assert isinstance(grant.sad['a']['acdc']['e'], dict)
-    assert guardian.said.encode() in grant.raw
-    assert sedi.said.encode() in grant.raw and age.said.encode() in grant.raw
-    # Honest residual, asserted present rather than quietly avoided: the guardian
-    # credential is disclosed WHOLE, so its expiry -- Mia's 18th birthday -- crosses the
-    # wire and hands the service her birth month and day. An attribute in a
-    # whole-disclosed authority credential cannot be withheld the way an edge can. See
-    # _guardian_attr for why the mitigations are deployment-level, and the sibling
-    # module for the same residual on its own guardianship credential.
-    assert b"2038-03-15" in grant.raw
+    assert grant.said == "ECPr0RSNH4H__JNu5Bex2TSaMH_bnlb2P3-4C_Pk41wd"
 
-    # 5. admit (service -> Bob): closes the exchange.
-    admit = exchange(sender=STORE, receiver=BOB, route="/ipex/admit", prior=grant.said,
+    # What the platform receives is exactly what it asked for and no more: the
+    # authorization payload, the guardianship's scope, and a binding to Cara.
+    granted = grant.sad['a']
+    assert _authz_capabilities(granted['acdc']['a']['authz']) == {"read", "post",
+                                                                  "message"}
+    assert granted['authority']['a']['ward'] == CARA
+    assert granted['subject']['i'] == CARA             # the ward bound by issuee...
+    assert isinstance(granted['subject']['name'], str)  # ...with every attribute withheld
+    assert isinstance(granted['subject']['dob'], str)
+    assert b"Cara Carver" not in grant.raw             # name never on the wire
+    assert b"2009-04-10" not in grant.raw              # birthdate never on the wire
+    assert b"Bob Carver" not in grant.raw              # nor the parent's identity
+    # Honest residual, asserted present rather than quietly avoided: the guardianship
+    # credential is disclosed WHOLE, so its expiry -- Cara's 18th birthday -- crosses the
+    # wire and hands the platform her birth month and day. An attribute in a
+    # whole-disclosed authority credential cannot be withheld the way an edge can, which
+    # is the disclosure argument of the module docstring showing up as an actual leak.
+    assert b"2027-04-10" in grant.raw
+    # The withheld blocks still recompute to the section SAID the credential commits to,
+    # so the platform can prove the disclosure belongs to Cara's citizen credential.
+    check = Compactor(mad=dict(granted['subject'], d=''), makify=True, kind=kind)
+    check.compact()
+    assert check.said == _committed_a_said(wardCitizen, kind)
+
+    # The platform now runs the same binding a verifier runs anywhere, on the credentials
+    # it was handed -- which is the point of the whole exchange.
+    assert _verify_authz_chain(wardAuthz, guardian, wardCitizen, guardianCitizen)
+
+    # 5. admit (platform -> Cara): closes the exchange.
+    admit = exchange(sender=SOCIAL, receiver=CARA, route="/ipex/admit", prior=grant.said,
                      stamp=ADMIT_STAMP, kind=kind)
     assert admit.sad['p'] == grant.said
-    assert admit.said == "EMCDbUzBbCm1Hp1B0gJamOPBQHmcnxpym4o6-1e_jQv9"
-
-
-# ---------------------------------------------------------------------------
-# Phase 4: dynamic revocation (blindable registry) + provable accountability.
-# ---------------------------------------------------------------------------
-def _guardian_status(event, guardianSaid, sn):
-    """Unblind a guardianship-registry event to its state ('issued' | 'revoked').
-
-    The bup event on the wire carries only the blinded state's SAID (blid); the guardian
-    (holder), who shares the registry salt with the DGO (issuer), unblinds the event at
-    presentation so the verifier can confirm current status. The salt is never handed to
-    the verifier, so the verifier -- watching the public registry -- cannot itself READ
-    the state word (issued/revoked). It does NOT follow that the ward is fully
-    uncorrelatable: the bup event's existence, count, sequence, and timestamps stay
-    public, so a per-guardianship registry (as modeled here) still leaks WHEN a
-    guardianship was terminated. Full temporal decorrelation needs placeholder
-    pre-issuance, continued blind updates after revocation, and a shared-herd registry
-    (panel review, PRV-F3); this example demonstrates the state-blinding, not that.
-    """
-    unblinder = Blinder.unblind(said=event.sad['b'], acdc=guardianSaid,
-                                states=GUARDIAN_STATES, salt=GUARDIAN_SALT, sn=sn)
-    return unblinder.state
-
-
-def test_revocation_and_accountability_JSON():
-    """Phase 4: the guardianship is checked live (blindable), and the act is attributable.
-
-    Guardianship terminates dynamically -- majority, restored capacity, death, court
-    order -- so a verifier MUST check current registry status, not merely trust the
-    dates in the credential. This uses a BLINDABLE registry: each state update (bup)
-    carries only a blinded SAID, so a verifier watching the public registry cannot tell
-    issued from revoked (no correlatable log of the ward), yet the guardian, holding the
-    registry salt, can unblind the current event to prove status at presentation.
-
-    Two things are shown. First, the status gate: while the guardianship is 'issued' the
-    presentation is honored; once the DGO records a 'revoked' update, the current event
-    unblinds to 'revoked' and the presentation MUST be refused -- even before any stated
-    expiry date. Second, provable accountability: because the credential names BOB as
-    issuee and the ward only by edge, the verifier attributes the act to BOB (a specific
-    guardian AID) through a verifiable chain -- presentation (issuer Bob) -I2I-> guardian
-    credential (subject edge) -> the ward -- an accountability trail no document-centric
-    mDL/ARF flow carries.
-    """
-    kind = Kinds.json
-    sedi, age, _ = _ward_credentials(kind)
-    reg = _guardian_registry(kind)
-    guardian = _guardian_credential(kind, sedi=sedi, reg=reg)
-    presentation = _represented_presentation(kind, guardian, sedi, age)
-
-    # --- Issued: the DGO binds the guardian credential into its registry (bup). ---
-    issuedBlinder = Blinder.blind(acdc=guardian.said, state='issued',
-                                  salt=GUARDIAN_SALT, sn=1)
-    issued = blindate(regid=reg.said, prior=reg.said, blid=issuedBlinder.said,
-                      sn=1, stamp="2026-01-07T12:05:00.000000+00:00", kind=kind)
-    assert issued.ilk == Ilks.bup
-    assert issuedBlinder.said == "EPzyaHXPUd8NWjK-ig9Eh1nSvOyTAFLfSgQqmExpF7vV"
-    assert issued.said == "EDFrYNwV7d-GH5-t0abLRz-AoMPXszt5ILfDl2_Kskzt"
-    assert issued.sad['b'] == issuedBlinder.said
-    # Privacy: the state word and the guardian SAID never appear on the wire; only the
-    # blinded SAID rides in the bup event.
-    assert b"issued" not in issued.raw
-    assert guardian.said.encode() not in issued.raw
-    # The guardian unblinds the current event to prove 'issued'; the presentation binds
-    # AND the status is current, so the service honors it.
-    assert _guardian_status(issued, guardian.said, sn=1) == 'issued'
-    assert _verify_representation(presentation, guardian, sedi, age)
-
-    # --- Revoked: the DGO records a second update; status flips before any expiry. ---
-    revokedBlinder = Blinder.blind(acdc=guardian.said, state='revoked',
-                                   salt=GUARDIAN_SALT, sn=2)
-    revoked = blindate(regid=reg.said, prior=issued.said, blid=revokedBlinder.said,
-                       sn=2, stamp="2026-05-01T09:00:00.000000+00:00", kind=kind)
-    assert revoked.said == "EDYR2V-oyZsuCwI9b-aaLLY_HMg9P4pA0HGxaKHGau0M"
-    assert revoked.sad['p'] == issued.said          # chains onto the issuance update
-    assert _guardian_status(revoked, guardian.said, sn=2) == 'revoked'
-    # The credential graph still binds (edges are immutable), but a verifier that checks
-    # current status MUST refuse: a terminated guardianship confers no authority.
-    def status_gated(currentEvent, sn):
-        bindsOk = _verify_representation(presentation, guardian, sedi, age)
-        return bindsOk and _guardian_status(currentEvent, guardian.said, sn) == 'issued'
-    assert status_gated(issued, 1) is True          # honored while issued
-    assert status_gated(revoked, 2) is False        # refused once revoked
-
-    # --- Provable accountability: the act is attributable to the GUARDIAN, not the ward.
-    # holder != subject is structural, so the verifier reads a verifiable chain from a
-    # specific human/guardian AID (Bob) to the ward -- and can prove afterward WHO acted.
-    assert presentation.sad['i'] == BOB                         # a guardian acted...
-    assert presentation.sad['i'] != sedi.iseaid                 # ...NOT the ward
-    assert presentation.sad['e']['authority']['n'] == guardian.said
-    assert guardian.sad['a']['i'] == BOB                        # the authority is Bob's
-    assert guardian.sad['e']['subject']['n'] == sedi.said       # over this ward
+    assert admit.said == "EIHZtaug8QZLED1659uJMKchvzttEnE7UmarnwiUOo5y"
 
 
 # ---------------------------------------------------------------------------
 # Phase 5: the invariants hold across every serialization kind.
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("kind", [Kinds.json, Kinds.cesr, Kinds.cbor, Kinds.mgpk])
-def test_guardianship_serialization_kinds(kind):
+def test_wardauthz_serialization_kinds(kind):
     """Phases 1-4 invariants hold across every serialization kind, not just JSON.
 
-    Exercises the same flows -- the attributive ward sedi-id, the aggregative age
-    credential with its E1E identity edge, the disclosed-whole guardian credential
-    (holder != subject), the represented presentation with its I2I/NI2I edges and the
-    full binding, and the blindable-registry status gate -- over CESR (the native KERI
-    wire format) and CBOR/MGPK, asserting the behavioral invariants without pinning
-    per-kind SAIDs. (The no-PII-on-the-wire checks are JSON-specific: the CESR wire form
-    base64-encodes the payload, so a plaintext substring check does not apply.)
+    Exercises the same graph -- four schemas, four credentials, the four pinned edge
+    operators, the full binding, the attenuation ceiling and the compact/expanded SAID
+    equality -- over CESR (the native KERI wire format) and CBOR/MGPK, asserting the
+    behavioral invariants without pinning per-kind SAIDs. (The no-PII-on-the-wire checks
+    stay in the JSON phase: the CESR wire form base64-encodes the payload, so a plaintext
+    substring check does not apply.)
     """
-    sedi, age, ageAggor = _ward_credentials(kind)
-    assert sedi.ilk == Ilks.acm and age.ilk == Ilks.acg and sedi.kind == kind
-    assert sedi.sad['rd'] and age.sad['rd']                    # registry-bound on every kind
-    assert_acdc_schema_valid(sedi)
-    assert_acdc_schema_valid(age)
-    assert _verify_identity_edge(age, sedi)                    # E1E holds on every kind
+    guardianCitizen, guardian, wardCitizen, wardAuthz = _credential_graph(kind)
+    for acdc in (guardianCitizen, guardian, wardCitizen, wardAuthz):
+        assert acdc.ilk == Ilks.acm and acdc.kind == kind
+        assert acdc.sad['rd']                          # registry-bound on every kind
+        assert_acdc_schema_valid(acdc)
 
-    # Selective disclosure of age: reveal the over-13 flag, withhold the rest; verifies
-    # via AGID.
-    ageDisc = _age_disclosure(ageAggor)
-    assert ageDisc[AGE_OVER13]['over13'] is False
-    assert Aggor.verifyDisclosure(ageDisc, kind=kind)
+    # The four operators survive every kind, and so does the whole binding.
+    assert wardAuthz.sad['e']['authority']['o'] == 'I2I'
+    assert wardAuthz.sad['e']['subject']['o'] == 'E1E'
+    assert guardian.sad['e']['citizen']['o'] == 'E1E'
+    assert wardCitizen.sad['e']['guardian']['o'] == 'NI2I'
+    assert _verify_authz_chain(wardAuthz, guardian, wardCitizen, guardianCitizen)
 
-    # Guardian credential: holder != subject, registry-bound, disclosed whole, schema-valid.
-    guardian = _guardian_credential(kind, sedi=sedi)
-    assert guardian.iseaid == BOB and guardian.iseaid != sedi.iseaid
-    assert guardian.sad['e']['subject']['n'] == sedi.said
-    assert guardian.sad['e']['subject']['o'] == 'NI2I'
-    assert_acdc_schema_valid(guardian)
+    # The two identity edges are the ones a coerce-to-I2I verifier would reject.
+    assert not _i2i_holds(wardAuthz, wardCitizen)
+    assert not _i2i_holds(guardian, guardianCitizen)
+    assert _i2i_holds(wardAuthz, guardian)
 
-    # Represented presentation: full binding holds; compact == expanded SAID; schema-valid.
-    presentation = _represented_presentation(kind, guardian, sedi, age)
-    compact = _represented_presentation(kind, guardian, sedi, age, compactify=True)
-    assert presentation.said == compact.said
-    assert _verify_representation(presentation, guardian, sedi, age)
-    schema = assert_acdc_schema_valid(presentation)
-    assert_acdc_schema_valid(compact, schema=schema)
+    # Issuer independence: the State issues three, the guardian issues the fourth into
+    # his own registry.
+    assert guardianCitizen.sad['i'] == guardian.sad['i'] == wardCitizen.sad['i'] == STATE
+    assert wardAuthz.sad['i'] == BOB
+    assert wardAuthz.sad['rd'] != guardian.sad['rd']
 
-    # Blindable-registry status gate: issued honored, revoked refused.
-    reg = _guardian_registry(kind)
-    guardian = _guardian_credential(kind, sedi=sedi, reg=reg)
-    issuedBlinder = Blinder.blind(acdc=guardian.said, state='issued', salt=GUARDIAN_SALT, sn=1)
-    issued = blindate(regid=reg.said, prior=reg.said, blid=issuedBlinder.said, sn=1,
-                      stamp="2026-01-07T12:05:00.000000+00:00", kind=kind)
-    assert _guardian_status(issued, guardian.said, sn=1) == 'issued'
-    revokedBlinder = Blinder.blind(acdc=guardian.said, state='revoked', salt=GUARDIAN_SALT, sn=2)
-    revoked = blindate(regid=reg.said, prior=issued.said, blid=revokedBlinder.said, sn=2,
-                       stamp="2026-05-01T09:00:00.000000+00:00", kind=kind)
-    assert _guardian_status(revoked, guardian.said, sn=2) == 'revoked'
+    # Attenuation holds on every kind, and over-reach is refused on every kind.
+    overreach = dict(_authz_block())
+    overreach['rc'] = dict(overreach['rc'], **{"social_store": ["purchase"]})
+    greedy = _ward_authz(kind, guardian=guardian, wardCitizen=wardCitizen,
+                         authz=overreach)
+    assert_acdc_schema_valid(greedy)                   # schema-valid...
+    with pytest.raises(AssertionError):                # ...and refused by the binding
+        _verify_authz_chain(greedy, guardian, wardCitizen, guardianCitizen)
+
+    # Compact and expanded forms share one SAID on every kind.
+    compact = _ward_authz(kind, guardian=guardian, wardCitizen=wardCitizen,
+                          compactify=True)
+    assert compact.said == wardAuthz.said
+    assert isinstance(compact.sad['e'], str)
+
+    # The ward's minimal disclosure recomputes to the committed section SAID.
+    disclosure = _ward_id_disclosure(wardCitizen, kind)
+    assert disclosure['i'] == CARA
+    check = Compactor(mad=dict(disclosure, d=''), makify=True, kind=kind)
+    check.compact()
+    assert check.said == _committed_a_said(wardCitizen, kind)
 
 
 if __name__ == "__main__":
-    test_ward_credentials_and_graduated_disclosure_JSON()
-    test_guardian_authority_credential_JSON()
-    test_represented_presentation_JSON()
-    test_revocation_and_accountability_JSON()
+    test_wardauthz_schemas_JSON()
+    test_wardauthz_credentials_JSON()
+    test_wardauthz_chain_and_negatives_JSON()
+    test_wardauthz_presentation_JSON()
     for _kind in (Kinds.json, Kinds.cesr, Kinds.cbor, Kinds.mgpk):
-        test_guardianship_serialization_kinds(_kind)
+        test_wardauthz_serialization_kinds(_kind)
