@@ -88,10 +88,12 @@ import pytest
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
-from keri import Kinds, Ilks
-from keri.core import Salter, Noncer, Aggor, Mapper, Diger, Verfer, exchange
+from keri import Kinds, Ilks, Vrsn_2_0
+from keri.core import (Salter, Noncer, Aggor, Mapper, Diger, Verfer, exchange,
+                       messagize, Parser, Counter, Codens, Texter)
 from keri.core.coring import MtrDex, NonceDex
 from keri.core.eventing import incept
+from keri.core.serdering import SerderACDC
 from keri.acdc import regcept, blindate, acdcmap, acdcagg
 from keri.core.structing import Blinder
 
@@ -210,6 +212,103 @@ def _bulk_aggregate(vs, ds):
     blist = [_blind_said(v, d) for v, d in zip(vs, ds)]
     B = Diger(ser="".join(blist).encode()).qb64
     return blist, B
+
+
+def _bare_schema(sad):
+    """The credential's schema SAID, whether it carries the block or already the SAID.
+
+    A DISCLOSED credential ships 's' as the bare SAID, never the whole schema block.
+    The verifier named that SAID in its own request, so it already holds the schema;
+    sending the block back is bulk -- and on an aggregative credential it is worse than
+    bulk, because the block enumerates the field names of every WITHHELD threshold,
+    which is precisely what selective disclosure exists to keep back. Compacting it
+    does not disturb the credential's identity: the top-level 'd' commits to the
+    most-compact form, in which 's' is already the bare SAID.
+    """
+    return sad['s']['$id'] if isinstance(sad['s'], dict) else sad['s']
+
+
+def _nest(serder):
+    """Frame an artifact as a V2 nested substream for an exchange's attachments.
+
+    Same construct keri.acdc.ipexing.grant() builds, in the shape tests/acdc/
+    test_ipexing.py already uses: a non-CESR body rides Texter-encoded inside a
+    NonNativeBodyGroup, followed by its (here empty) attachment group, the pair
+    enclosed in a BodyWithAttachmentGroup.
+    """
+    body = bytes(serder.raw)
+    if serder.kind != Kinds.cesr:
+        body = Counter.enclose(qb64=Texter(raw=body).qb64b,
+                               code=Codens.NonNativeBodyGroup, version=Vrsn_2_0)
+    empty = Counter.enclose(qb64=b'', code=Codens.ControllerIdxSigs,
+                            version=Vrsn_2_0)
+    nested = bytearray(body)
+    nested.extend(Counter.enclose(qb64=empty, code=Codens.AttachmentGroup,
+                                  version=Vrsn_2_0))
+    return Counter.enclose(qb64=nested, code=Codens.BodyWithAttachmentGroup,
+                           version=Vrsn_2_0)
+
+
+def _receive(msg):
+    """Parse a signed exchange stream the way its recipient would.
+
+    Returns the single parse result -- .serder is the exn, .nests carries one entry per
+    nested artifact -- or None when the stream does not verify. The parser rejects the
+    WHOLE stream if any nested artifact fails verification, so a tampered credential
+    cannot be quietly dropped while the rest of the grant is accepted.
+    """
+    ims = bytearray(msg)
+    try:
+        results = Parser(version=Vrsn_2_0).parse(ims=ims, framed=False,
+                                                 processive=False)
+    except Exception:
+        return None
+    if not results or len(results) != 1:
+        return None
+    return results[0]
+
+
+def _decoded(result):
+    """Every byte the recipient actually reads, decoded.
+
+    A nested non-CESR body rides Texter-encoded (base64) inside a NonNativeBodyGroup,
+    so a plaintext substring check against the raw stream would pass whatever the
+    content is. Concatenating the exn body with each nested artifact's decoded body
+    gives a stream the no-correlator-on-the-wire checks can be run against for real.
+    """
+    return bytes(result.serder.raw) + b"".join(bytes(nest.serder.raw)
+                                               for nest in result.nests)
+
+
+def _accept_grant(result, agreedSaid, *, expect=()):
+    """The verifier's grant-time acceptance: walk the DAG from a.o[0] by edge digest.
+
+    The grant names its origin by SAID and carries nothing else in 'a', so the verifier
+    cannot look an artifact up under a label the holder chose. It indexes what arrived
+    by each artifact's OWN SAID, resolves a.o[0] against that index, and follows the
+    origin's edges by the digest each edge commits to. That is the argument for 'o'
+    over bespoke per-artifact labels: a substituted far node is refused because the
+    digest decides, not the key name. The parser has already verified every nested
+    artifact -- and rejected the whole stream if any failed -- so this does not repeat
+    self-verification.
+
+    'expect' is what the verifier required, not everything the graph mentions. This
+    presentation names both the identity and the age copy on its edges but delivers
+    only the age one, because over-21 is all that was asked for; demanding the whole
+    graph would reject that honest partial disclosure.
+    """
+    received = {nest.serder.said: nest.serder for nest in result.nests}
+    origin = received.get(result.serder.sad['a']['o'][0])
+    if origin is None or origin.said != agreedSaid:
+        return False
+    edges = origin.sad.get('e')
+    named = ({edge['n'] for edge in edges.values()
+              if isinstance(edge, dict) and 'n' in edge}
+             if isinstance(edges, dict) else set())   # compacted edges: nothing to walk
+    for said in expect:
+        if said not in named or said not in received:
+            return False               # not named by an edge, or did not arrive
+    return True
 
 
 def _verify_membership(d, v, blist, B):
@@ -975,12 +1074,12 @@ def _offer(kind, *, sender, receiver, prior, presentationSaid):
 
 
 def test_disclosure_gating_and_revocation_JSON():
-    """Phase 5: the blinding factor v_k rides only in the grant; a revoked set fails.
+    """Phase 5: the blinding factor v_k is released only at the grant; a revoked set fails.
 
     Two properties. First, disclosure gating: the pre-agree /ipex/offer commits only the
     fresh presentation SAID -- built with a constructor that cannot
     carry the source SAIDs, the registry, or the blinding factor v_k (Sam #1532's
-    make-it-unrepresentable guidance). v_k appears ONLY in the grant, after a valid signed
+    make-it-unrepresentable guidance). v_k is released ONLY at the grant, after a valid signed
     agree, so a verifier who spurns walks away with no stable correlator and no membership
     proof. Second, revocation: the State flips the shared set's blindable state to
     'revoked'; a verifier that checks current status MUST then refuse, even though the
@@ -1027,39 +1126,103 @@ def test_disclosure_gating_and_revocation_JSON():
     keyState = Verfer(qb64=vSigner.verfer.qb64)
     assert keyState.verify(sig=vSig.raw, ser=agree.raw)
 
-    # 4. The gate: the holder discloses (grant carrying v_k + the membership proof) ONLY on
-    # a valid, offer-binding, signed agree.
+    # 4. The gate: the holder discloses (the grant, its nested artifacts, and the
+    # membership proof carrying v_k) ONLY on a valid, offer-binding, signed agree.
     def disclose(agreeMsg, sig):
         if not (agreeMsg.sad['r'] == "/ipex/agree" and agreeMsg.sad['p'] == offer.said
                 and keyState.verify(sig=sig.raw, ser=agreeMsg.raw)):
             return None
-        # The grant carries the EXPANDED presentation (edges visible, so the verifier can
-        # walk the I2I chain to the source SAIDs), the age selective disclosure, and the
-        # membership proof (v_k + list + B). The issuer-committed source SAIDs and v_k
-        # cross the wire ONLY here -- after the contract -- never in the pre-agree offer.
+        # The disclosed DAG: the per-context presentation is the ORIGIN node (expanded,
+        # so its edges are visible and the verifier can walk the I2I chain to the source
+        # SAIDs), and the age copy hangs off one of those edges, disclosed selectively
+        # (issuee + over-21). Each is a real ACDC, so each rides as its own nested CESR
+        # substream in the grant's attachments (keripy discussion #1613); selective
+        # disclosure leaves the copy's SAID untouched. The grant's attribute block
+        # carries ONLY the origin SAID, under 'o' and in LIST form -- one element per
+        # disclosed DAG, so a single DAG is a list of one (discussion #1627). Both ship
+        # the schema as a bare SAID (see _bare_schema): the verifier asked by schema
+        # SAID, so returning the block would only hand back the names of every
+        # withheld threshold.
         ageDisc, _ = ageAggors[k].disclose(indices=[AGE_ISSUEE, AGE_OVER21])
-        return exchange(sender=ALICES[k], receiver=verifier, route="/ipex/grant",
-                        prior=agreeMsg.said,
-                        attributes=dict(acdc=pres.sad, ageDisclosure=ageDisc,
-                                        membership=dict(v=ageNonces.v(k), blist=ageBlist,
-                                                        B=Bage)),
-                        stamp=GRANT_STAMP, kind=kind)
+        origin = SerderACDC(sad=dict(pres.sad, s=_bare_schema(pres.sad)), makify=True)
+        ageDisclosed = SerderACDC(sad=dict(ageCopies[k].sad,
+                                           s=_bare_schema(ageCopies[k].sad),
+                                           A=ageDisc), makify=True)
+        grant = exchange(sender=ALICES[k], receiver=verifier, route="/ipex/grant",
+                         prior=agreeMsg.said,
+                         attributes=dict(o=[pres.said]),
+                         stamp=GRANT_STAMP, kind=kind)
+        holderSig = _HOLDER_SIGNERS[k].sign(ser=grant.raw, index=0)
+        grantMsg = messagize(grant, sigers=[holderSig],
+                             nests=[_nest(artifact)
+                                    for artifact in (origin, ageDisclosed)])
+        # The membership proof (v_k + the blinded list + the aggregate B) is the set's
+        # Issuer authentication factor, and #1613 puts an ACDC's authentication factor
+        # in the attachments to that ACDC's own nested substream. keripy has no CESR
+        # codec for a bulk-issuance membership witness, so it cannot be framed as an
+        # attachment yet; it is returned alongside the grant instead. The gating
+        # property is unaffected -- it is still released only through this gate, which
+        # is Sam's #1532 make-it-unrepresentable point applied at the API boundary.
+        membership = dict(v=ageNonces.v(k), blist=ageBlist, B=Bage)
+        return grant, grantMsg, ageDisclosed, membership
 
     # A forged signature unlocks nothing.
     assert disclose(agree, _SIGNERS[0].sign(ser=agree.raw, index=0)) is None
     # A valid agree unlocks the grant; v_k and the source SAIDs appear ONLY now.
-    grant = disclose(agree, vSig)
+    grant, grantMsg, ageDisclosed, membership = disclose(agree, vSig)
     assert grant is not None and grant.sad['p'] == agree.said
-    assert ageNonces.v(k).encode() in grant.raw                 # v_k revealed only in the grant
-    assert idCopies[k].said.encode() in grant.raw               # source SAIDs revealed...
-    assert ageCopies[k].said.encode() in grant.raw              # ...only post-agree
-    # The verifier walks the chain from the grant: the presentation's age edge names the
-    # source, the source is a proven member of the committed set, and it discloses over-21.
-    granted = grant.sad['a']['acdc']
+    assert grant.sad['a']['o'] == [pres.said]
+    assert 'acdc' not in grant.sad['a']
+    assert 'ageDisclosure' not in grant.sad['a']
+    assert 'membership' not in grant.sad['a']
+    # The exn payload is one SAID, so the correlators ride in the attachments and the
+    # returned proof, not in the body. They are still unreachable before the agree.
+    assert ageNonces.v(k).encode() not in grant.raw
+    assert idCopies[k].said.encode() not in grant.raw
+    assert membership['v'] == ageNonces.v(k)                    # v_k released only now
+    # What the verifier actually reads, decoded: the exn body plus each nested
+    # artifact's body. A nested non-CESR body rides Texter-encoded inside its group, so
+    # the same substring checks against the raw stream would prove nothing. The
+    # withheld thresholds must not appear anywhere in it.
+    received = _receive(grantMsg)
+    assert received is not None
+    decoded = _decoded(received)
+    assert b"over55" not in decoded and b"over65" not in decoded
+    assert b"over13" not in decoded and b"over18" not in decoded
+    # The verifier walks the DAG from the grant: it resolves 'a.o[0]' against what
+    # arrived, follows the origin's edges by digest, and finds the age copy it required
+    # under exactly the digest the age edge commits to -- never under a label the
+    # holder chose (see _accept_grant).
+    assert _accept_grant(received, pres.said, expect=(ageCopies[k].said,))
+    recovered = received.nests[0].serder
+    assert recovered.said == grant.sad['a']['o'][0]
+    granted = recovered.sad
     assert granted['e']['age']['n'] == ageCopies[k].said        # edge -> the disclosed source
     assert granted['e']['identity']['n'] == idCopies[k].said
-    assert _verify_membership(ageCopies[k].said, ageNonces.v(k), ageBlist, Bage)
-    assert grant.sad['a']['ageDisclosure'][AGE_OVER21]['over21'] is True
+    assert ageDisclosed.said == ageCopies[k].said               # disclosure preserves the SAID
+    assert _verify_membership(ageCopies[k].said, membership['v'],
+                              membership['blist'], membership['B'])
+    assert ageDisclosed.sad['A'][AGE_OVER21]['over21'] is True
+
+    # The negative that only works because the walk goes by digest: a holder who
+    # substitutes another context's age copy -- itself a perfectly well-formed,
+    # self-verifying credential of the same schema -- is refused, because this
+    # presentation's age edge names copy k and copy k did not arrive. Under a bespoke
+    # 'ageDisclosure' label there was nothing to catch that: the verifier took whatever
+    # sat under the key.
+    other = (k + 1) % BULK_SIZE
+    otherDisc, _ = ageAggors[other].disclose(indices=[AGE_ISSUEE, AGE_OVER21])
+    swapped = SerderACDC(sad=dict(ageCopies[other].sad,
+                                  s=_bare_schema(ageCopies[other].sad),
+                                  A=otherDisc), makify=True)
+    swappedOrigin = SerderACDC(sad=dict(pres.sad, s=_bare_schema(pres.sad)),
+                               makify=True)
+    swappedMsg = messagize(grant, sigers=[_HOLDER_SIGNERS[k].sign(ser=grant.raw,
+                                                                  index=0)],
+                           nests=[_nest(swappedOrigin), _nest(swapped)])
+    substituted = _receive(swappedMsg)
+    assert substituted is not None                  # well-formed, and still refused
+    assert not _accept_grant(substituted, pres.said, expect=(ageCopies[k].said,))
 
     # --- Revocation: the State records a 'revoked' update on the shared set registry. ---
     revokedBlinder = Blinder.blind(acdc=Bage, state='revoked', salt=BULK_AGE_REG_SALT, sn=2)

@@ -74,9 +74,10 @@ import pytest
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
-from keri import Kinds, Ilks
+from keri import Kinds, Ilks, Vrsn_2_0
 from keri.core import (Salter, Noncer, Aggor, Compactor, Mapper, Diger, Verfer,
-                       exchange, messagize, incept, rotate)
+                       exchange, messagize, incept, rotate, Parser, Counter,
+                       Codens, Texter)
 from keri.core.coring import MtrDex
 from keri.core.serdering import SerderACDC
 from keri.acdc import regcept, acdcmap, acdcagg
@@ -697,6 +698,120 @@ def _bespoke_presentation(sedi, age, kind, compactify=False, rule=None):
                    kind=kind, compactify=compactify)
 
 
+def _bare_schema(sad):
+    """The credential's schema SAID, whether it carries the block or already the SAID.
+
+    A DISCLOSED credential ships 's' as the bare SAID, never the whole schema block.
+    The disclosee named that SAID in its own request, so it already holds the schema;
+    sending the block back is pure bulk -- and on an aggregative credential it is worse
+    than bulk, because the block enumerates the field names of every WITHHELD element,
+    which is precisely what selective disclosure exists to keep back. Compacting it
+    does not disturb the credential's identity: the top-level 'd' commits to the
+    most-compact form, in which 's' is already the bare SAID.
+    """
+    return sad['s']['$id'] if isinstance(sad['s'], dict) else sad['s']
+
+
+def _nest(serder):
+    """Frame an artifact as a V2 nested substream for an exchange's attachments.
+
+    Same construct keri.acdc.ipexing.grant() builds, in the shape tests/acdc/
+    test_ipexing.py already uses: a non-CESR body rides Texter-encoded inside a
+    NonNativeBodyGroup, followed by its (here empty) attachment group, the pair
+    enclosed in a BodyWithAttachmentGroup. Written out locally rather than imported,
+    because the ipexing helpers that do it are module-private.
+    """
+    body = bytes(serder.raw)
+    if serder.kind != Kinds.cesr:
+        body = Counter.enclose(qb64=Texter(raw=body).qb64b,
+                               code=Codens.NonNativeBodyGroup, version=Vrsn_2_0)
+    empty = Counter.enclose(qb64=b'', code=Codens.ControllerIdxSigs,
+                            version=Vrsn_2_0)
+    nested = bytearray(body)
+    nested.extend(Counter.enclose(qb64=empty, code=Codens.AttachmentGroup,
+                                  version=Vrsn_2_0))
+    return Counter.enclose(qb64=nested, code=Codens.BodyWithAttachmentGroup,
+                           version=Vrsn_2_0)
+
+
+def _receive(msg):
+    """Parse a signed exchange stream the way its recipient would.
+
+    Returns the single parse result -- .serder is the exn, .nests carries one entry per
+    nested artifact -- or None when the stream does not verify. The parser rejects the
+    WHOLE stream if any nested artifact fails verification, so a tampered credential
+    cannot be quietly dropped while the rest of the grant is accepted.
+    """
+    ims = bytearray(msg)
+    try:
+        results = Parser(version=Vrsn_2_0).parse(ims=ims, framed=False,
+                                                 processive=False)
+    except Exception:
+        return None
+    if not results or len(results) != 1:
+        return None
+    return results[0]
+
+
+def _decoded(result):
+    """Every byte the recipient actually reads, decoded.
+
+    A nested non-CESR body rides Texter-encoded (base64) inside a NonNativeBodyGroup,
+    so a plaintext substring check against the raw stream would pass whatever the
+    content is. Concatenating the exn body with each nested artifact's decoded body
+    gives a stream the no-PII-on-the-wire checks can be run against for real.
+    """
+    return bytes(result.serder.raw) + b"".join(bytes(nest.serder.raw)
+                                               for nest in result.nests)
+
+
+def _accept_grant(result, agreedSaid, schema=None, *, expect=()):
+    """The disclosee's grant-time acceptance: walk the DAG from a.o[0] by edge digest.
+
+    The grant names its origin by SAID and carries nothing else in 'a', so the
+    disclosee cannot look an artifact up under a label the discloser chose. It indexes
+    what arrived by each artifact's OWN SAID, resolves a.o[0] against that index, and
+    then follows the origin's edges by the digest each edge commits to. That is the
+    argument for 'o' over the bespoke per-artifact labels these examples used to
+    invent: a substituted or relabelled far node is refused because the digest decides,
+    not the key name.
+
+    Four checks here, on top of one the parser has already made. The parser verified
+    every nested artifact before this is called -- and rejected the whole stream if any
+    failed -- so self-verification is not repeated. Then: (1) the origin named by
+    a.o[0] actually arrived; (2) it is exactly the SAID agreed to in the offer, so the
+    terms accepted are the terms received; (3) it validates against the agreed schema,
+    when one is given; and (4) each far node in 'expect' is both NAMED by one of the
+    origin's edges and present among the artifacts that arrived. Returns False when the
+    artifacts are well-formed but are not the DAG agreed to.
+
+    'expect' is what the disclosee required, not everything the graph mentions: under
+    graduated disclosure a DAG may legitimately name far nodes that were never
+    requested and never delivered, so demanding the whole graph would reject honest
+    partial disclosures.
+
+    A complete verifier performs a further check this omits -- revocation: for each
+    edge, check the far credential's registry ('rd') TEL for a revocation event; a
+    revoked source must be rejected even when the DAG is otherwise perfect. Running
+    that live (keri.vdr's Tevery/Reger over a Habery) is out of scope at this
+    data-structure level; test_examples.py exercises the registry lifecycle.
+    """
+    received = {nest.serder.said: nest.serder for nest in result.nests}
+    origin = received.get(result.serder.sad['a']['o'][0])
+    if origin is None or origin.said != agreedSaid:
+        return False
+    if schema is not None:
+        assert_acdc_schema_valid(origin, schema=schema)
+    edges = origin.sad.get('e')
+    named = ({edge['n'] for edge in edges.values()
+              if isinstance(edge, dict) and 'n' in edge}
+             if isinstance(edges, dict) else set())   # compacted edges: nothing to walk
+    for said in expect:
+        if said not in named or said not in received:
+            return False                   # not named by an edge, or did not arrive
+    return True
+
+
 def _club_accepts_grant(grantedSad, agreedSaid, schema):
     """The club's grant-time verification of a delivered credential -- a real
     verification operation, not a SAID-equality trick.
@@ -965,11 +1080,10 @@ def test_gated_ipex_exchange_JSON():
     kind = Kinds.json
     sedi, age, ageAggor = _source_credentials(kind)
     bespoke = _bespoke_presentation(sedi, age, kind)
-    # The grant carries the bespoke ACDC in most-compact form (schema as a SAID): the
-    # club already received the terms in the offer, and compact form keeps the grant
-    # small. The two disclosures ride alongside -- the sedi-id photo (partial) and the
-    # age over-21 flag (selective).
-    bespokeCompact = _bespoke_presentation(sedi, age, kind, compactify=True)
+    # The grant nests the bespoke ACDC as the DAG's origin, expanded so its edges are
+    # walkable but with the schema compacted to a SAID (the club asked by schema SAID
+    # and already has the block). The two disclosed sources ride in their own nested
+    # substreams -- the sedi-id photo (partial) and the age over-21 flag (selective).
     clubSigner = _SIGNERS[3]              # the club's establishing signing key
 
     # The exn peer messages are serialized as JSON here so the privacy invariants
@@ -1062,20 +1176,62 @@ def test_gated_ipex_exchange_JSON():
     # (b) binds this offer's SAID, and (c) carries a signature that verifies against
     # the captured key state. Dropping the route check would let a signed spurn that
     # binds the offer unlock disclosure -- a decline must never open the gate.
+    def grantStream(agreeMsg, *, swapAge=False, tamperIssuee=False):
+        """Assemble the signed grant: the exn body plus the nested disclosed DAG.
+
+        The two keyword flags exist only to build the negatives below; a real discloser
+        never sets them.
+        """
+        # The disclosed DAG: the bespoke presentation is the ORIGIN node and the two
+        # sources hang off its I2I edges. Each is a real ACDC in partially-compacted
+        # form -- the same SAID as the issued credential, because the top-level 'd'
+        # commits to the most-compact form -- so each rides as its own nested CESR
+        # substream (keripy discussion #1613: "each ACDC in the DAG gets its own nested
+        # substream"). The sedi-id reveals the photo block; the age credential reveals
+        # only the over-21 element of its aggregate. The origin ships EXPANDED, because
+        # a most-compact origin collapses its edge section to a SAID and the club would
+        # have no DAG left to walk. All three ship the schema as a bare SAID (see
+        # _bare_schema): the club asked by schema SAID, so returning the block would
+        # only hand back the field names of everything withheld.
+        origin = SerderACDC(sad=dict(bespoke.sad, s=_bare_schema(bespoke.sad)),
+                            makify=True)
+        sediDisclosed = SerderACDC(sad=dict(sedi.sad, s=_bare_schema(sedi.sad),
+                                            a=_photo_disclosure(sedi, kind)),
+                                   makify=True)
+        ageDisclosed = SerderACDC(sad=dict(age.sad, s=_bare_schema(age.sad),
+                                           A=_age_disclosure(ageAggor)),
+                                  makify=True)
+        far = sediDisclosed if swapAge else ageDisclosed
+        if tamperIssuee:      # keep the committed 'd', swap the disclosed issuee for
+            sediDisclosed = SerderACDC(       # another AID of identical length, so
+                sad=dict(sediDisclosed.sad,   # only the digest betrays the change
+                         a=dict(sediDisclosed.sad['a'], i=CLUB)), verify=False)
+        # The grant's attribute block carries ONLY the origin SAID, under the label 'o'
+        # and in LIST form: one element per disclosed DAG, so a single DAG is a list of
+        # one (keripy discussion #1627, "Use Required Lists to support Multi-Dag
+        # Presentation" -- the preferred option there, because 'dp' is already a list
+        # and a field-map alternative would be ambiguous).
+        grant = exchange(sender=ALICE, receiver=CLUB, route="/ipex/grant",
+                         prior=agreeMsg.said,
+                         attributes=dict(o=[bespoke.said]),
+                         stamp=GRANT_STAMP, kind=kind)
+        # The artifacts themselves ride in the grant's CESR attachments as nested
+        # substreams, NOT as extra keys in 'a'. messagize() does the framing; Alice's
+        # indexed controller signature is the authenticator (hab.endorse() is the
+        # Habery-backed wrapper over this same call).
+        aliceSig = _SIGNERS[2].sign(ser=grant.raw, index=0)
+        grantMsg = messagize(grant, sigers=[aliceSig],
+                             nests=[_nest(artifact) for artifact in
+                                    (origin, sediDisclosed, far)])
+        return grant, grantMsg, sediDisclosed, ageDisclosed
+
     def disclose(agreeMsg, sig, keyState):
         isAgree = agreeMsg.sad['r'] == "/ipex/agree"
         bound = agreeMsg.sad['p'] == offer.said
         signed = keyState.verify(sig=sig.raw, ser=agreeMsg.raw)
         if not (isAgree and bound and signed):
             return None                                 # terms not accepted -> nothing
-        # The grant carries the bespoke ACDC (compact) plus the two disclosures -- the
-        # sedi-id photo (partial) and the age over-21 flag (selective). PII appears only here.
-        return exchange(sender=ALICE, receiver=CLUB, route="/ipex/grant",
-                        prior=agreeMsg.said,
-                        attributes=dict(acdc=bespokeCompact.sad,
-                                        identity=_photo_disclosure(sedi, kind),
-                                        age=_age_disclosure(ageAggor)),
-                        stamp=GRANT_STAMP, kind=kind)
+        return grantStream(agreeMsg)
 
     # A forged signature (someone else's key over the agree) unlocks nothing.
     forged = _SIGNERS[0].sign(ser=agree.raw, index=0)
@@ -1093,32 +1249,76 @@ def test_gated_ipex_exchange_JSON():
                     capturedKeyState) is None
 
     # The valid, signed, offer-binding agree unlocks the disclosure.
-    grant = disclose(agree, clubSig, capturedKeyState)
+    grant, grantMsg, sediDisclosed, ageDisclosed = disclose(agree, clubSig,
+                                                            capturedKeyState)
     assert grant is not None
     assert grant.sad['p'] == agree.said                 # grant follows the agree
-    assert grant.said == "ENtvVRuc7Yj32fZle43hK4omY6k3UGKX1EuGCpj7KPRL"
-    # (property 4) PII crosses the wire only now, in the grant: the photo and the
-    # over-21 flag.
-    assert b"<state-endorsed-photo-bytes>" in grant.raw
-    assert grant.sad['a']['age'][AGE_OVER21]['over21'] is True
+    # The origin, as a one-element list. Nothing else rides in 'a': no full SAD under
+    # 'acdc', and none of the bespoke per-disclosure labels the example used to invent.
+    assert grant.sad['a']['o'] == [bespoke.said]
+    assert 'acdc' not in grant.sad['a']
+    assert 'identity' not in grant.sad['a']
+    assert 'age' not in grant.sad['a']
+    assert grant.said == "EIvK8h6tmqYVpxYqG996w8Q_DVjxctSQWHoQrKILG9Zn"
+    # (property 4) PII crosses the wire only now, in the grant -- and only inside the
+    # nested substreams; the exn payload itself is a single SAID. The checks run
+    # against everything the club actually reads, DECODED: the exn body plus each
+    # nested artifact's body. A nested non-CESR body rides Texter-encoded inside its
+    # group, so the same substring checks against the raw stream would pass whatever
+    # the content was, and prove nothing.
+    received = _receive(grantMsg)
+    assert received is not None
+    assert [nest.serder.said for nest in received.nests] == [
+        bespoke.said, sedi.said, age.said]      # origin first, then the two sources
+    decoded = _decoded(received)
+    assert b"<state-endorsed-photo-bytes>" not in grant.raw
+    assert b"<state-endorsed-photo-bytes>" in decoded
+    assert ageDisclosed.sad['A'][AGE_OVER21]['over21'] is True
     # ...and the grant still never carries the withheld birthdate or the other age
     # thresholds -- the club cannot tell whether she is over 55 or 65.
-    assert b"2000-03-15" not in grant.raw
-    assert b"over55" not in grant.raw and b"over65" not in grant.raw
+    assert b"2000-03-15" not in decoded
+    assert b"over55" not in decoded and b"over65" not in decoded
+    assert b"over13" not in decoded and b"over18" not in decoded
     # The grant honors the apply's field request. sedi-id (attributive): the photo block
     # and issuee are revealed (/a/photo, /a/i), the rest stay bare SAIDs. age
     # (aggregative): the over-21 flag and issuee are revealed.
-    identityDisc = grant.sad['a']['identity']
+    identityDisc = sediDisclosed.sad['a']
     assert isinstance(identityDisc['photo'], dict) and identityDisc['i'] == ALICE
     assert isinstance(identityDisc['dob'], str)         # dob withheld
-    assert grant.sad['a']['age'][AGE_ISSUEE]['i'] == ALICE
+    assert ageDisclosed.sad['A'][AGE_ISSUEE]['i'] == ALICE
+    # Partial and selective disclosure do not disturb the credential's identity: each
+    # disclosed artifact still SAIDs to the issued credential, because the top-level
+    # 'd' commits to the most-compact form.
+    assert sediDisclosed.said == sedi.said and ageDisclosed.said == age.said
 
-    # The club VERIFIES the granted credential before trusting it -- a real operation,
-    # not a SAID-equality trick (see _club_accepts_grant: self-verify the artifact,
-    # match it to the SAID committed in the offer, schema-validate). It accepts here:
-    # the delivered SAID is the one the club agreed to, so the terms it accepted are
-    # the terms bound into the data it received -- terms follow the data.
-    assert _club_accepts_grant(grant.sad['a']['acdc'], bespoke.said, bespoke.sad['s'])
+    # The club VERIFIES the granted DAG before trusting it -- a real operation, not a
+    # SAID-equality trick. 'a.o' names the origin by SAID and nothing else, so the club
+    # indexes what arrived by each artifact's OWN SAID, resolves the origin against
+    # that index, and follows the origin's edges by the digest each edge commits to
+    # (see _accept_grant). It accepts: the delivered origin is the one the club agreed
+    # to, so the terms it accepted are the terms bound into the data it received --
+    # terms follow the data.
+    assert _accept_grant(received, bespoke.said, bespoke.sad['s'],
+                         expect=(sedi.said, age.said))
+
+    # The negative that only works because the walk goes by digest. A discloser who
+    # substitutes a different credential where a far node should be -- here a second
+    # copy of the identity credential in the age credential's place -- produces a grant
+    # whose artifacts all self-verify and whose origin is still the agreed SAID. It is
+    # refused anyway, because the age edge's digest names a credential that did not
+    # arrive. Under the old bespoke labels there was nothing to check this against: the
+    # disclosee took whatever sat under the key name the discloser chose.
+    _, swappedMsg, _, _ = grantStream(agree, swapAge=True)
+    substituted = _receive(swappedMsg)
+    assert substituted is not None                      # well-formed, and still refused
+    assert not _accept_grant(substituted, bespoke.said, bespoke.sad['s'],
+                             expect=(sedi.said, age.said))
+
+    # And an artifact tampered in flight takes the WHOLE grant down rather than being
+    # quietly dropped: the parser returns nothing at all, so the club never gets the
+    # chance to accept a partial DAG.
+    _, tamperedMsg, _, _ = grantStream(agree, tamperIssuee=True)
+    assert _receive(tamperedMsg) is None
     # The 4th check, revocation, is documented in _club_accepts_grant; the presentation
     # carries its hooks -- each I2I edge names a registry-bound source credential.
     assert bespoke.sad['e']['identity']['n'] == sedi.said and sedi.sad['rd']
@@ -1128,7 +1328,7 @@ def test_gated_ipex_exchange_JSON():
     admit = exchange(sender=CLUB, receiver=ALICE, route="/ipex/admit",
                      prior=grant.said, stamp=ADMIT_STAMP, kind=kind)
     assert admit.sad['p'] == grant.said
-    assert admit.said == "EKcGraxNIj2oi-AZwzuvqSt_y1-0sPFx3K8WJ3DuNULa"
+    assert admit.said == "EJdetakAIclahUgCh1vaMud4ZUuBgDJqYGxTEaer-yaF"
 
 
 def test_accountability_and_terms_follow_data_JSON():
@@ -1730,37 +1930,63 @@ def test_job_application_entitlement_presentation_JSON():
     identityDisclosure = dict(identityCompactor.partials[('',)].mad)
     for field in ("legalName", "address", "phone", "biometric"):
         identityDisclosure[field] = sedi.sad['a'][field]
-    # Build grant: carry the compact presentation, the partial SEDI disclosure,
-    # and the linked entitlement only after a valid agree has been established.
+    # Rebuild the origin and the two disclosed sources as real ACDCs in
+    # partially-compacted form. Partial compaction leaves the top-level SAID untouched,
+    # so each is still the credential the employer was promised, and each can ride as
+    # its own nested CESR substream in the grant's attachments (keripy discussion
+    # #1613). The origin ships expanded so its edge section is walkable; all three ship
+    # the schema as a bare SAID, which the employer already has -- it asked by schema
+    # SAID in its own dp (see _bare_schema).
+    origin = SerderACDC(sad=dict(presentation.sad, s=_bare_schema(presentation.sad)),
+                        makify=True)
+    sediDisclosed = SerderACDC(sad=dict(sedi.sad, s=_bare_schema(sedi.sad),
+                                        a=identityDisclosure), makify=True)
+    permitDisclosed = SerderACDC(sad=dict(permit.sad, s=_bare_schema(permit.sad),
+                                          a=dict(permit.sad['a']),
+                                          e=dict(permit.sad['e'])), makify=True)
+    # Build grant: the attribute block names the origin presentation and nothing else,
+    # under 'o' and in list form (one element per disclosed DAG -- discussion #1627).
+    # The presentation and the two disclosed sources ride as nested substreams.
     grant = exchange(
         sender=ALICE,
         receiver=CLUB,
         route="/ipex/grant",
         prior=agree.said,
-        attributes=dict(
-            acdc=presentationCompact.sad,
-            identity=identityDisclosure,
-            entitlement=dict(a=dict(permit.sad['a']), e=dict(permit.sad['e'])),
-        ),
+        attributes=dict(o=[presentation.said]),
         stamp="2026-08-04T15:03:00.000000+00:00",
         kind=kind,
     )
+    holderSig = _SIGNERS[2].sign(ser=grant.raw, index=0)
+    grantMsg = messagize(grant, sigers=[holderSig],
+                         nests=[_nest(artifact) for artifact in
+                                (origin, sediDisclosed, permitDisclosed)])
     # Assert the grant follows the agree and that only the intended identity
-    # subset appears on the wire.
+    # subset appears in what the employer decodes.
     assert grant is not None
     assert grant.sad['r'] == "/ipex/grant"
     assert grant.sad['p'] == agree.said
-    assert b"Alice Anders" in grant.raw
-    assert b"220 E 300 S" in grant.raw
-    assert b"+1-801-555-0100" in grant.raw
-    assert b"face-template-sha256:4d0ff9ce-job-app" in grant.raw
-    assert b"2000-03-15" not in grant.raw
-    assert b"over21" not in grant.raw and b"over16" not in grant.raw
+    assert grant.sad['a']['o'] == [presentation.said]
+    assert 'acdc' not in grant.sad['a']
+    assert 'identity' not in grant.sad['a']
+    assert 'entitlement' not in grant.sad['a']
+    assert sediDisclosed.said == sedi.said and permitDisclosed.said == permit.said
+    received = _receive(grantMsg)
+    assert received is not None
+    assert [nest.serder.said for nest in received.nests] == [
+        presentation.said, sedi.said, permit.said]
+    decoded = _decoded(received)
+    assert b"Alice Anders" in decoded
+    assert b"220 E 300 S" in decoded
+    assert b"+1-801-555-0100" in decoded
+    assert b"face-template-sha256:4d0ff9ce-job-app" in decoded
+    assert b"2000-03-15" not in decoded
+    assert b"over21" not in decoded and b"over16" not in decoded
+    assert b"Alice Anders" not in grant.raw           # the exn payload is one SAID
 
     # Assert the identity disclosure reveals the requested fields but leaves DOB
     # compacted as a bare SAID, then recompute the section SAID to prove the
     # mixed disclosure still belongs to the committed SEDI credential.
-    identityDisc = grant.sad['a']['identity']
+    identityDisc = sediDisclosed.sad['a']
     assert identityDisc['i'] == ALICE
     assert isinstance(identityDisc['legalName'], dict)
     assert isinstance(identityDisc['address'], dict)
@@ -1773,7 +1999,7 @@ def test_job_application_entitlement_presentation_JSON():
 
     # Assert the entitlement disclosure carries the permit data plus the E1E edge
     # that chains the entitlement back to the original SEDI credential.
-    entitlementDisc = grant.sad['a']['entitlement']
+    entitlementDisc = permitDisclosed.sad
     assert entitlementDisc['a']['i'] == ALICE
     assert entitlementDisc['a']['permitId'] == "UT-FH-2026-00917"
     assert entitlementDisc['a']['category'] == "food-handler"
@@ -1782,10 +2008,12 @@ def test_job_application_entitlement_presentation_JSON():
     assert entitlementDisc['e']['identity']['n'] == sedi.said
     assert entitlementDisc['e']['identity']['s'] == sedi.sad['s']['$id']
 
-    # Verify the compact presentation the employer received is the exact artifact
-    # it previously accepted in the offer/agree exchange.
-    assert _club_accepts_grant(grant.sad['a']['acdc'], presentation.said,
-                               presentationSchemaExpanded)
+    # Verify the presentation the employer received is the exact artifact it previously
+    # accepted in the offer/agree exchange, and that both far nodes its edges name
+    # actually arrived -- resolved by digest from what was received, not by any label
+    # the holder chose (see _accept_grant).
+    assert _accept_grant(received, presentation.said, presentationSchemaExpanded,
+                         expect=(sedi.said, permit.said))
 
     # Build admit to close the exchange after the employer has received the grant.
     admit = exchange(sender=CLUB, receiver=ALICE, route="/ipex/admit",
