@@ -1069,7 +1069,7 @@ def _offer(kind, *, sender, receiver, prior, presentationSaid):
     an EGF/implementation-guide requirement, not a schema change.
     """
     return exchange(sender=sender, receiver=receiver, route="/ipex/offer", prior=prior,
-                    attributes=dict(acdc=presentationSaid),
+                    attributes=dict(acdc=presentationSaid, ax=[False]),
                     stamp=OFFER_STAMP, kind=kind)
 
 
@@ -1101,14 +1101,17 @@ def test_disclosure_gating_and_revocation_JSON():
     apply = exchange(sender=verifier, receiver=ALICES[k], route="/ipex/apply",
                      attributes=dict(m="Prove over-21.",
                                      disclose={ageCopies[k].sad['s']['$id']:
-                                               ["/A/i", "/A/over21"]}),
+                                               ["/A/i", "/A/over21"]},
+                                     ax=[False]),
                      stamp=APPLY_STAMP, kind=kind)
     assert apply.sad['r'] == "/ipex/apply"
+    assert apply.sad['a']['ax'] == [False]
 
     # 2. offer (holder -> verifier): via the leak-proof constructor. NO source SAIDs, NO v_k.
     offer = _offer(kind, sender=ALICES[k], receiver=verifier, prior=apply.said,
                    presentationSaid=pres.said)
     assert offer.sad['p'] == apply.said
+    assert offer.sad['a']['ax'] == [False]
     assert pres.said.encode() in offer.raw                    # fresh per-context SAID: safe
     assert idCopies[k].said.encode() not in offer.raw           # source SAID withheld
     assert ageCopies[k].said.encode() not in offer.raw          # source SAID withheld
@@ -1150,7 +1153,7 @@ def test_disclosure_gating_and_revocation_JSON():
                                            A=ageDisc), makify=True)
         grant = exchange(sender=ALICES[k], receiver=verifier, route="/ipex/grant",
                          prior=agreeMsg.said,
-                         attributes=dict(o=[pres.said]),
+                         attributes=dict(o=[pres.said], ax=[False]),
                          stamp=GRANT_STAMP, kind=kind)
         holderSig = _HOLDER_SIGNERS[k].sign(ser=grant.raw, index=0)
         grantMsg = messagize(grant, sigers=[holderSig],
@@ -1172,6 +1175,7 @@ def test_disclosure_gating_and_revocation_JSON():
     grant, grantMsg, ageDisclosed, membership = disclose(agree, vSig)
     assert grant is not None and grant.sad['p'] == agree.said
     assert grant.sad['a']['o'] == [pres.said]
+    assert grant.sad['a']['ax'] == [False]
     assert 'acdc' not in grant.sad['a']
     assert 'ageDisclosure' not in grant.sad['a']
     assert 'membership' not in grant.sad['a']
