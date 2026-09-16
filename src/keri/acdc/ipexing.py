@@ -1204,7 +1204,7 @@ class IpexHandler:
         # Reduce the child verdicts under the group's Operator, over three values
         # rather than two, so an unknown member cannot change a verdict its siblings
         # already decide.
-        return self.MAryReducers[groupOp](results)
+        return chaining.reduce(groupOp, results, reducers=self.MAryReducers)
 
     def _verifyIssuerAuthNode(self, serder, nest, *, presented=False):
         """Verify the issuer-auth proof carried on one disclosed ACDC node.
