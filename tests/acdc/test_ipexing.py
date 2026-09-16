@@ -6263,6 +6263,17 @@ def test_ipex_v2_reduces_far_node_status_inside_the_edge_operator():
                      [goodNest, revokedNest],
                      "OR over a revoked far node")
 
+            # The boundary: the grant's *origin* is the ACDC being disclosed, and
+            # disclosing a revocation is a thing an Issuer does on purpose. Its
+            # registry state is recorded rather than enforced, which is what the v1
+            # Verifier does with a revoked presented credential too. Only a node
+            # reached through an edge -- where the near side is resting a claim on
+            # it -- is refused for being revoked.
+            exn = run(revokedNest, [],
+                      "the origin's own registry state is recorded, not enforced")
+            assert recipientHby.db.exns.get(keys=(exn.said,)) is not None
+            assert recipientHby.db.epse.get(keys=(exn.said,)) is None
+
             # An Operator this verifier cannot evaluate is an unknown in the lattice,
             # so a satisfied sibling decides the group without it. DI2I is recognized
             # and unimplemented; BOGUS is not recognized at all; neither can change a
