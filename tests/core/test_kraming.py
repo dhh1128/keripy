@@ -6191,3 +6191,124 @@ def test_partial_multisig_survives_an_anchor_during_collection(mockHelpingNowUTC
             assert receiverHby.db.kramPMKS.get(rotKey) == []
             assert receiverHby.db.kramPMSK.get(rotKey) is None
             assert receiverHby.db.kramMSGC.get(rotKey) is not None
+
+
+def _stagedGapSetup(senderHby, receiverHby, cf):
+    """Shared setup for the staged accept-lag increase gap tests.
+
+    Old lags are 10 s and new lags 20 s, with drift 10 ms so the d terms stay
+    small next to the lags. Returns (kramer, senderHab, base) where base is the
+    fake clock's starting datetime, used as t=0.
+    """
+    senderHab = senderHby.makeHab(name="sender", isith='1', icount=1,
+                                  transferable=True, version=V2, kind=Kinds.cesr)
+    crossKvy = Kevery(db=receiverHby.db, lax=False, local=False)
+    senderIcp = senderHab.msgOwnEvent(sn=0, framed=True, gvrsn=V2)
+    Parser(version=V2).parse(ims=bytearray(senderIcp), kvy=crossKvy)
+    assert senderHab.pre in crossKvy.kevers
+
+    old = [10, 10_000, 10_000, 10_000, 10_000, 10_000, 10_000]  # d,sl,ll,xl,psl,pll,pxl
+    cf.put({"kram": {"enabled": True, "caches": {"~": old}}})
+    kramer = Kramer(db=receiverHby.db, cf=cf)
+    base = helping.nowUTC()
+    return kramer, senderHab, base
+
+
+def _qry(senderHab, stamp):
+    """Ksn query from senderHab dated stamp."""
+    return query(pre=senderHab.pre, route="ksn",
+                 query=dict(i=senderHab.pre, src=senderHab.pre),
+                 stamp=stamp, pvrsn=Vrsn_2_0)
+
+
+def _intake(kramer, senderHab, serder):
+    """KRAM step of Kevery.processMsg (eventing.py): reconcile, then intake.
+
+    Intake consumes the attachment dict, so each submission gets a fresh one.
+    Ed25519 signing is deterministic, so a resubmission is byte-identical.
+    """
+    sigers = senderHab.mgr.sign(ser=serder.raw, verfers=senderHab.kever.verfers,
+                                indexed=True)
+    kwa = dict(lsgs=[(Prefixer(qb64=senderHab.pre), sigers)], serder=serder)
+    kramer.reconcileConfig()
+    return kramer.intake(serder, kwa)
+
+
+def _stageIncrease(kramer, cf):
+    new = [10, 20_000, 20_000, 20_000, 20_000, 20_000, 20_000]
+    cf.put({"kram": {"enabled": True, "caches": {"~": new}}})
+    kramer.changeConfig(cf)
+    assert kramer._pending["~"]["delta"] == 10_000
+
+
+def test_staged_increase_replay_of_entry_cached_before_staging(fakeHelpingClock):
+    """A message cached shortly before a staged accept-lag increase keeps its
+    old prune lag, is pruned under it, and is accepted again once the staged
+    accept lag takes effect.
+    """
+    clock = fakeHelpingClock
+    salt_sender = Salter(raw=b'0123456789abcdef').qb64
+    salt_receiver = Salter(raw=b'0123456789abcdeg').qb64
+
+    with (openHby(name="sender", base="test", salt=salt_sender, temp=True) as senderHby,
+          openHby(name="receiver", base="test", salt=salt_receiver, temp=True) as receiverHby,
+          openCF(name="kram", base="test", temp=True) as cf):
+        kramer, senderHab, base = _stagedGapSetup(senderHby, receiverHby, cf)
+        at = lambda s: helping.toIso8601(base + timedelta(seconds=s))
+
+        # Message dated t=95 arrives at t=96 and is accepted and cached.
+        clock.set(at(96))
+        serder = _qry(senderHab, at(95))
+        assert _intake(kramer, senderHab, serder) is serder
+        cache = receiverHby.db.kramMSGC.get(keys=(senderHab.pre, serder.said))
+        assert cache.pml == 10_000
+
+        # Staging starts at t=100: prune lag rises now, accept lag after 10 s.
+        clock.set(at(100))
+        _stageIncrease(kramer, cf)
+
+        # A prune pass at t=106 removes the entry under its stored pml of 10 s.
+        clock.set(at(106))
+        kramer._pruneMessages(rdt_ms=int(helping.nowUTC().timestamp() * 1000))
+        assert receiverHby.db.kramMSGC.get(keys=(senderHab.pre, serder.said)) is None
+
+        # Before the stage completes the old accept lag still refuses a replay.
+        clock.set(at(107))
+        assert _intake(kramer, senderHab, serder) is None
+
+        # At t=110 the stage completes on intake and the window reaches back
+        # to t=89.99, so the byte-identical replay should still be refused.
+        clock.set(at(110))
+        assert _intake(kramer, senderHab, serder) is None, \
+            "replay accepted: entry pruned under its old pml before the accept lag rose"
+
+
+def test_staged_increase_first_play_of_message_refused_before_completion(fakeHelpingClock):
+    """A message refused as late just before a staged increase completes is
+    accepted as a first play just after, whatever the staging delay, because
+    refusal writes no cache entry.
+    """
+    clock = fakeHelpingClock
+    salt_sender = Salter(raw=b'0123456789abcdef').qb64
+    salt_receiver = Salter(raw=b'0123456789abcdeg').qb64
+
+    with (openHby(name="sender", base="test", salt=salt_sender, temp=True) as senderHby,
+          openHby(name="receiver", base="test", salt=salt_receiver, temp=True) as receiverHby,
+          openCF(name="kram", base="test", temp=True) as cf):
+        kramer, senderHab, base = _stagedGapSetup(senderHby, receiverHby, cf)
+        at = lambda s: helping.toIso8601(base + timedelta(seconds=s))
+
+        clock.set(at(100))
+        _stageIncrease(kramer, cf)
+
+        # Message dated t=97 arrives at t=108, under the old accept lag:
+        # 108 - 0.01 - 10 = 97.99 > 97, so it is refused and nothing is cached.
+        clock.set(at(108))
+        serder = _qry(senderHab, at(97))
+        assert _intake(kramer, senderHab, serder) is None
+        assert receiverHby.db.kramMSGC.get(keys=(senderHab.pre, serder.said)) is None
+
+        # At t=110 the stage completes and the same message is resubmitted.
+        clock.set(at(110))
+        assert _intake(kramer, senderHab, serder) is None, \
+            "first play accepted: refused under the old lag, admitted under the new one"
